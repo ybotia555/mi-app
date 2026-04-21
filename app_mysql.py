@@ -42,11 +42,13 @@ app.secret_key = "gestorpro_v13_ultra_secure_2025"
 # ================================================================
 #  CONFIG MySQL — CAMBIA host/user/password
 # ================================================================
-DB_HOST     = "mainline.proxy.rlwy.net"
-DB_USER     = "root"
-DB_PASSWORD = "mqWePZkMZEcKqJBpFuyAlxRwJrLBhnEn"
-DB_NAME     = "railway"
-DB_PORT     = 54092
+import os
+
+DB_HOST     = os.getenv("DB_HOST")
+DB_USER     = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_NAME     = os.getenv("DB_NAME")
+DB_PORT     = int(os.getenv("DB_PORT", 3306))
 
 # ================================================================
 #  CONEXION
@@ -533,10 +535,18 @@ def ok_pass(p):
 def ok_email(e): return bool(re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$",e))
 
 def get_tienda(tid=None):
-    t=tid or tid_now()
+    t = tid or tid_now()
     if not t: return {}
-    row=db_query("SELECT * FROM tiendas WHERE id=%s",(t,),fetchone=True)
-    return dict(row) if row else {}
+    # Cache en session para evitar query en cada request
+    cache_key = f"_tienda_{t}"
+    if cache_key in session:
+        return session[cache_key]
+    row = db_query("SELECT * FROM tiendas WHERE id=%s", (t,), fetchone=True)
+    result = dict(row) if row else {}
+    if result:
+        # Guarda por 5 minutos (se limpia con el logout)
+        session[cache_key] = result
+    return result
 
 def get_su():
     if session.get("superadmin"): return {"user":"superadmin","nombre":"Super Admin","rol":"superadmin"}
@@ -6202,4 +6212,6 @@ if __name__ == "__main__":
     print()
     print("  INSTALAR: pip install flask werkzeug reportlab pymysql")
     print("="*70)
-    app.run(debug=True)
+
+    # 👇 IMPORTANTE
+    app.run(host="0.0.0.0", port=5000, debug=True)
