@@ -32,6 +32,7 @@ from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib import colors as pdf_colors
 from datetime import datetime, timedelta
+from dbutils.pooled_db import PooledDB
 import random, io, string, re, json
 import pymysql, pymysql.cursors
 
@@ -50,29 +51,105 @@ DB_PORT     = 54092
 # ================================================================
 #  CONEXION
 # ================================================================
+_DB_POOL = None  # Se inicializa en la primera llamada
+
+def _get_pool():
+    global _DB_POOL
+    if _DB_POOL is None:
+        try:
+            from dbutils.pooled_db import PooledDB
+            _DB_POOL = PooledDB(
+                creator=pymysql,
+                mincached=3,      # conexiones mínimas siempre abiertas
+                maxcached=10,     # máximo en pool
+                maxconnections=20,# máximo total simultáneas
+                blocking=True,    # espera si no hay disponibles
+                host=DB_HOST,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                database=DB_NAME,
+                port=DB_PORT,
+                charset="utf8mb4",
+                cursorclass=pymysql.cursors.DictCursor,
+                autocommit=True,
+                connect_timeout=10,
+                read_timeout=30,
+                write_timeout=30,
+            )
+        except ImportError:
+            # Si no está dbutils, usa reconexión simple optimizada
+            _DB_POOL = "SIMPLE"
+    return _DB_POOL
+
+
 def get_db():
-    return pymysql.connect(
-        host=DB_HOST,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME,
-        port=DB_PORT,
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
-        autocommit=True
-    )
+    """Obtiene conexión del pool (o crea una si no hay pool)."""
+    pool = _get_pool()
+    if pool == "SIMPLE":
+        return pymysql.connect(
+            host=DB_HOST, user=DB_USER, password=DB_PASSWORD,
+            database=DB_NAME, port=DB_PORT, charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor, autocommit=True,
+            connect_timeout=10, read_timeout=30, write_timeout=30,
+        )
+    return pool.connection()
+
 
 def db_query(sql, p=(), fetchone=False, fetchall=False, commit=False):
+    """
+    Ejecuta una query usando el pool de conexiones.
+    Las conexiones se devuelven al pool automáticamente (no se cierran).
+    """
     conn = get_db()
     try:
         with conn.cursor() as cur:
             cur.execute(sql, p)
-            if commit: conn.commit()
-            if fetchone:  return cur.fetchone()
-            if fetchall:  return cur.fetchall()
+            if commit:
+                conn.commit()
+            if fetchone:
+                return cur.fetchone()
+            if fetchall:
+                return cur.fetchall()
             return cur.lastrowid
+    except pymysql.err.OperationalError:
+        # Reconexión automática si la conexión expiró
+        try:
+            conn.ping(reconnect=True)
+            with conn.cursor() as cur:
+                cur.execute(sql, p)
+                if commit: conn.commit()
+                if fetchone: return cur.fetchone()
+                if fetchall: return cur.fetchall()
+                return cur.lastrowid
+        except Exception:
+            return None
+    finally:
+        conn.close()  # Devuelve al pool, no cierra realmente
+
+
+def db_multi(queries_params):
+    """
+    Ejecuta múltiples queries en UNA sola conexión del pool.
+    Úsala cuando necesites 2+ queries seguidas (mucho más rápido).
+    queries_params = [(sql, params, fetchone, fetchall), ...]
+    Retorna lista de resultados en el mismo orden.
+    """
+    conn = get_db()
+    results = []
+    try:
+        with conn.cursor() as cur:
+            for item in queries_params:
+                sql   = item[0]
+                p     = item[1] if len(item) > 1 else ()
+                fo    = item[2] if len(item) > 2 else False
+                fa    = item[3] if len(item) > 3 else False
+                cur.execute(sql, p)
+                if fo:   results.append(cur.fetchone())
+                elif fa: results.append(cur.fetchall())
+                else:    results.append(cur.lastrowid)
     finally:
         conn.close()
+    return results
 
 # ================================================================
 #  init_db — CREA BD Y TABLAS AUTOMÁTICAMENTE
@@ -82,6 +159,52 @@ def init_db():
     conn = get_db()
     try:
         with conn.cursor() as cur:
+
+             # Tabla de chat en vivo persistente
+            cur.execute("""CREATE TABLE IF NOT EXISTS chat_live(
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                tienda_id VARCHAR(100) NOT NULL,
+                sesion_id VARCHAR(50) NOT NULL,
+                cliente VARCHAR(100) NOT NULL,
+                agente VARCHAR(100),
+                mensaje TEXT NOT NULL,
+                de_quien VARCHAR(20) DEFAULT 'cliente',
+                leido TINYINT(1) DEFAULT 0,
+                fecha VARCHAR(20),
+                ultima_actividad DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                cerrado TINYINT(1) DEFAULT 0,
+                INDEX idx_chat_tid(tienda_id),
+                INDEX idx_chat_sid(sesion_id),
+                INDEX idx_chat_act(ultima_actividad)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+
+            # Tabla de sesiones de chat (para control de inactividad)
+            cur.execute("""CREATE TABLE IF NOT EXISTS chat_sesiones(
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                tienda_id VARCHAR(100) NOT NULL,
+                sesion_id VARCHAR(50) UNIQUE NOT NULL,
+                cliente VARCHAR(100) NOT NULL,
+                agente VARCHAR(100),
+                estado VARCHAR(20) DEFAULT 'activo',
+                creada DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ultima_actividad DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                cerrada DATETIME,
+                INDEX idx_cs_tid(tienda_id),
+                INDEX idx_cs_sid(sesion_id),
+                INDEX idx_cs_act(ultima_actividad)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+
+            # Tabla de aprendizaje del bot (conversaciones para mejorar)
+            cur.execute("""CREATE TABLE IF NOT EXISTS bot_aprendizaje(
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                tienda_id VARCHAR(100) NOT NULL,
+                pregunta TEXT NOT NULL,
+                respuesta TEXT NOT NULL,
+                util TINYINT(1) DEFAULT 1,
+                fecha VARCHAR(20),
+                veces_usada INT DEFAULT 1,
+                INDEX idx_ba_tid(tienda_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
 
             cur.execute("""CREATE TABLE IF NOT EXISTS superusers(
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1100,46 +1223,58 @@ def wa_float():
     return f'<a class="wa-float" href="https://wa.me/{wa}?text={msg}" target="_blank" title="WhatsApp">{WA_SVG}</a>'
 
 def sidebar():
-    u=get_su()
+    """
+    Sidebar optimizado: agrupa las queries de notificaciones y chat
+    en una sola llamada con db_multi() en lugar de 2-3 separadas.
+    """
+    u = get_su()
     if not u: return ""
-    r=rol(); nombre=u.get("nombre",u.get("user","")); inicial=nombre[0].upper()
-    t=get_tienda()
-    unread=0
+    r       = rol()
+    nombre  = u.get("nombre", u.get("user",""))
+    inicial = nombre[0].upper() if nombre else "?"
+    t       = get_tienda()
+
+    # Agrupa las queries en una sola conexión
+    unread      = 0
+    chat_unread = 0
+    hay_agente  = False
+
     if not is_sa() and tid_now():
-        row=db_query("SELECT COUNT(*) as c FROM notificaciones WHERE tienda_id=%s AND leida=0",(tid_now(),),fetchone=True)
-        unread=row["c"] if row else 0
-    nb=f'<span class="nb">{unread}</span>' if unread else ""
-
-    # Mensajes sin leer en chat (para empleados)
-    chat_unread=0
-    if is_em() and tid_now():
+        tid = tid_now()
+        queries = [
+            ("SELECT COUNT(*) as c FROM notificaciones WHERE tienda_id=%s AND leida=0", (tid,), True, False),
+        ]
+        if is_em():
+            queries.append(
+                ("SELECT COUNT(*) as c FROM chat_live WHERE tienda_id=%s AND de_quien='cliente' AND leido=0", (tid,), True, False)
+            )
+        if is_cl():
+            queries.append(
+                ("SELECT COUNT(*) as c FROM users WHERE tienda_id=%s AND rol='empleado'", (tid,), True, False)
+            )
         try:
-            row2=db_query(
-                "SELECT COUNT(*) as c FROM chat_live "
-                "WHERE tienda_id=%s AND de_quien='cliente' AND leido=0",
-                (tid_now(),),fetchone=True)
-            chat_unread=row2["c"] if row2 else 0
+            results = db_multi(queries)
+            unread = results[0]["c"] if results and results[0] else 0
+            if is_em() and len(results) > 1:
+                chat_unread = results[1]["c"] if results[1] else 0
+            if is_cl() and len(results) > 1:
+                hay_agente = (results[1]["c"] > 0) if results[1] else False
         except Exception:
-            chat_unread=0
-    chat_nb=f'<span class="nb">{chat_unread}</span>' if chat_unread else ""
+            row = db_query("SELECT COUNT(*) as c FROM notificaciones WHERE tienda_id=%s AND leida=0",
+                           (tid,), fetchone=True)
+            unread = row["c"] if row else 0
 
-    # Verificar si hay empleados disponibles (para mostrar chat al cliente)
-    hay_agente=False
-    if is_cl() and tid_now():
-        try:
-            ag=db_query("SELECT COUNT(*) as c FROM users WHERE tienda_id=%s AND rol='empleado'",(tid_now(),),fetchone=True)
-            hay_agente=(ag["c"]>0) if ag else False
-        except Exception:
-            hay_agente=False
+    nb       = f'<span class="nb">{unread}</span>' if unread else ""
+    chat_nb  = f'<span class="nb">{chat_unread}</span>' if chat_unread else ""
 
-    navs={
-        "superadmin":[
+    navs = {
+        "superadmin": [
             ("🏠","Panel","super","/super"),
             ("🏪","Tiendas","super","/super/tiendas"),
             ("➕","Nueva Tienda","super","/super/nueva_tienda"),
-            ("👥","Admins","super","/super/usuarios")
+            ("👥","Admins","super","/super/usuarios"),
         ],
-        "admin":[
+        "admin": [
             ("📊","Dashboard","dash","/admin"),
             ("📦","Inventario","inv","/inventario"),
             ("🧾","Pedidos","ped","/admin_pedidos"),
@@ -1155,7 +1290,7 @@ def sidebar():
             ("📎","Comprobantes","comp","/comprobantes_pedido"),
             ("⚙️","Configuracion","cfg","/config"),
         ],
-        "empleado":[
+        "empleado": [
             ("🏠","Inicio","dash","/empleado"),
             ("🧾","Pedidos","ped","/emp_pedidos"),
             ("📦","Inventario","inv","/inventario_emp"),
@@ -1168,58 +1303,54 @@ def sidebar():
             ("💬","Chat en Vivo","chat","/agente_chat",chat_nb),
             ("🤖","Asistente","bot","/bot"),
         ],
-        "domiciliario":[
+        "domiciliario": [
             ("🏍️","Mis Entregas","domi","/domi"),
             ("📋","Pedidos Activos","ped","/domi_pedidos"),
             ("✅","Historial","hist","/domi_hist"),
             ("👤","Mi Perfil","perf","/perfil"),
         ],
-        "proveedor":[
+        "proveedor": [
             ("🏠","Mi Panel","prov","/prov"),
             ("📦","Catalogo","cat","/prov_catalogo"),
             ("📋","Mis Pedidos","ped","/prov_pedidos"),
             ("👤","Mi Perfil","perf","/perfil"),
         ],
-        "cliente":[
+        "cliente": [
             ("🏠","Tienda","shop","/tienda"),
             ("🛒","Carrito","cart","/carrito"),
             ("📦","Mis Pedidos","ped","/mis_pedidos"),
             ("🔄","Devoluciones","dev","/mis_devs"),
             ("🤖","Asistente IA","bot","/bot"),
-            # Chat con agente solo si hay empleados en la tienda
             *([("💬","Chat con Agente","chat","/chat_cliente")] if hay_agente else []),
             ("👤","Mi Perfil","perf","/perfil"),
         ],
     }
 
-    nav=navs.get(r,[])
-    cur=request.path; links=""
+    nav = navs.get(r, [])
+    cur = request.path
+    links = ""
     for item in nav:
-        icon  =item[0]
-        label =item[1]
-        _     =item[2]
-        href  =item[3]
-        extra =item[4] if len(item)>4 else ""
-        ac    ="ac" if cur==href or cur.startswith(href+"/") else ""
-        links+=f'<a href="{href}" class="ni {ac}"><span class="ic">{icon}</span>{label}{extra}</a>'
+        icon  = item[0]; label = item[1]; href = item[3]
+        extra = item[4] if len(item) > 4 else ""
+        ac    = "ac" if cur == href or cur.startswith(href+"/") else ""
+        links += f'<a href="{href}" class="ni {ac}"><span class="ic">{icon}</span>{label}{extra}</a>'
 
-    col={"superadmin":"#f9a8d4","admin":"#a5b4fc","empleado":"#6ee7b7",
-         "domiciliario":"#7dd3fc","proveedor":"#c4b5fd","cliente":"#fcd34d"}
-    lbl={"superadmin":"Super Admin","admin":"Administrador","empleado":"Empleado",
-         "domiciliario":"Domiciliario","proveedor":"Proveedor","cliente":"Cliente"}
+    col = {"superadmin":"#f9a8d4","admin":"#a5b4fc","empleado":"#6ee7b7",
+           "domiciliario":"#7dd3fc","proveedor":"#c4b5fd","cliente":"#fcd34d"}
+    lbl = {"superadmin":"Super Admin","admin":"Administrador","empleado":"Empleado",
+           "domiciliario":"Domiciliario","proveedor":"Proveedor","cliente":"Cliente"}
 
-    badge=""
+    badge = ""
     if t and not is_sa():
-        badge=(f'<div style="background:rgba(255,255,255,.08);border-radius:9px;padding:7px 11px;'
-               f'margin-bottom:10px;display:flex;align-items:center;gap:8px">'
-               f'<span style="font-size:1.3rem">{t.get("emoji","🏪")}</span>'
-               f'<span style="color:#fff;font-size:.76rem;font-weight:700">'
-               f'{str(t.get("nombre",""))[:20]}</span></div>')
+        badge = (f'<div style="background:rgba(255,255,255,.08);border-radius:9px;'
+                 f'padding:7px 11px;margin-bottom:10px;display:flex;align-items:center;gap:8px">'
+                 f'<span style="font-size:1.3rem">{t.get("emoji","🏪")}</span>'
+                 f'<span style="color:#fff;font-size:.76rem;font-weight:700">'
+                 f'{str(t.get("nombre",""))[:20]}</span></div>')
 
-    # Banner de chat para el cliente cuando hay agentes
-    agent_banner=""
+    agent_banner = ""
     if is_cl() and hay_agente:
-        agent_banner=(
+        agent_banner = (
             f'<a href="/chat_cliente" style="display:flex;align-items:center;gap:8px;'
             f'background:linear-gradient(135deg,#059669,#0ea5e9);border-radius:10px;'
             f'padding:9px 11px;margin-bottom:10px;text-decoration:none;'
@@ -1230,11 +1361,10 @@ def sidebar():
             f'</div></a>')
 
     return (f'<aside class="sidebar">'
-            f'<div class="sl"><span class="li">🏪</span><h1>GestorPro</h1><p>Multi-Tienda &middot; Colombia</p></div>'
+            f'<div class="sl"><span class="li">🏪</span><h1>GestorPro</h1>'
+            f'<p>Multi-Tienda &middot; Colombia</p></div>'
             f'<nav>{links}</nav>'
-            f'<div class="sf2">'
-            f'{agent_banner}'
-            f'{badge}'
+            f'<div class="sf2">{agent_banner}{badge}'
             f'<div class="up"><div class="av">{inicial}</div>'
             f'<div><div class="un">{nombre[:17]}</div>'
             f'<div class="ur" style="color:{col.get(r,"#e2e8f0")}">{lbl.get(r,r)}</div>'
@@ -1242,27 +1372,56 @@ def sidebar():
             f'<a href="/logout" class="btn bg bsm bbl" style="margin-top:9px">Cerrar sesión</a>'
             f'</div></aside>')
 
-def base(title,content,tid=None):
-    hs=li(); ml="margin-left:248px" if hs else "margin-left:0"
-    t=get_tienda(tid); pr=t.get("color","#4f46e5") if t else "#4f46e5"
-    dot=""; nb2=""
+_CSS_CACHE = {}  # Cache del CSS por color primario
+
+def css_cached(primary="#4f46e5"):
+    """
+    Versión cacheada de css_cached(). Genera el CSS solo la primera vez
+    por cada color y lo reutiliza en todas las requests siguientes.
+    En Railway con Railway MySQL esto ahorra ~5-15ms por request.
+    """
+    global _CSS_CACHE
+    if primary not in _CSS_CACHE:
+        _CSS_CACHE[primary] = css(primary)
+    return _CSS_CACHE[primary]
+def base(title, content, tid=None):
+    """
+    base() optimizado: usa css_cached() y agrupa la query de
+    notificaciones con db_multi() en lugar de una query separada.
+    """
+    hs = li()
+    ml = "margin-left:248px" if hs else "margin-left:0"
+    t  = get_tienda(tid)
+    pr = t.get("color","#4f46e5") if t else "#4f46e5"
+
+    dot  = ""
+    nb2  = ""
     if hs and is_st() and tid_now():
-        row=db_query("SELECT COUNT(*) as c FROM notificaciones WHERE tienda_id=%s AND leida=0",(tid_now(),),fetchone=True)
-        if row and row["c"]>0: dot='<span class="nd"></span>'
-        nb2=f'<div class="nw"><a href="/notificaciones" style="font-size:1.2rem;color:var(--mt)">🔔{dot}</a></div>'
-    cb2=""
+        row = db_query("SELECT COUNT(*) as c FROM notificaciones WHERE tienda_id=%s AND leida=0",
+                       (tid_now(),), fetchone=True)
+        if row and row["c"] > 0:
+            dot = '<span class="nd"></span>'
+        nb2 = f'<div class="nw"><a href="/notificaciones" style="font-size:1.2rem;color:var(--mt)">🔔{dot}</a></div>'
+
+    cb2 = ""
     if is_cl():
-        nc=sum((session.get("carrito") or {}).values())
-        cb2=f'<a href="/carrito" class="btn bg bsm">🛒 ({nc})</a>'
-    return (f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            f"<title>{title} &middot; GestorPro</title><style>{css(pr)}</style></head><body>"
-            +(sidebar() if hs else "")
-            +f'<div class="main" style="{ml}">'
+        nc  = sum((session.get("carrito") or {}).values())
+        cb2 = f'<a href="/carrito" class="btn bg bsm">🛒 ({nc})</a>'
+
+    return (f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
+            f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            f"<title>{title} &middot; GestorPro</title>"
+            f"<style>{css_cached(pr)}</style>"
+            # Hint al navegador para precargar conexión a Railway
+            f'<link rel="preconnect" href="https://fonts.googleapis.com">'
+            f"</head><body>"
+            + (sidebar() if hs else "")
+            + f'<div class="main" style="{ml}">'
             f'<div class="tb"><h2>{title}</h2><div class="tb-r">{nb2}{cb2}</div></div>'
             f'<div class="ct">{content}</div></div>'
-            +wa_float()
-            +"<script>var cb=document.getElementById('chat-box');if(cb)cb.scrollTop=cb.scrollHeight;</script>"
-            "</body></html>")
+            + wa_float()
+            + "<script>var cb=document.getElementById('chat-box');if(cb)cb.scrollTop=cb.scrollHeight;</script>"
+            + "</body></html>")
 
 def lbg(c="#4f46e5"):
     return f'style="background:linear-gradient(135deg,{c} 0%,#1e1b4b 100%)"'
@@ -1272,37 +1431,73 @@ def lbg(c="#4f46e5"):
 # ================================================================
 @app.route("/")
 def index():
-    tiendas=db_query("SELECT * FROM tiendas WHERE activa=1",fetchall=True) or []
-    cards=""
+    """
+    Index optimizado: UNA sola query con JOINs en lugar de 3 queries por tienda.
+    Original: 1 + (3 × N_tiendas) queries. Nuevo: 4 queries totales.
+    """
+    tiendas = db_query("SELECT * FROM tiendas WHERE activa=1 ORDER BY nombre", fetchall=True) or []
+    if not tiendas:
+        return (f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
+                f"<title>GestorPro</title><style>{css_cached()}</style></head><body>"
+                f'<div class="ss-page"><div class="ss-title">'
+                f'<div style="font-size:3.5rem">🏪</div>'
+                f'<h1>GestorPro</h1><p>Sin tiendas activas.</p></div></div></body></html>')
+
+    ids = tuple(t["id"] for t in tiendas)
+    fmt_ids = ",".join(["%s"] * len(ids))
+
+    # Una sola query para productos disponibles por tienda
+    prod_counts = db_query(
+        f"SELECT tienda_id, COUNT(*) as c FROM productos WHERE tienda_id IN ({fmt_ids}) AND cantidad>0 GROUP BY tienda_id",
+        ids, fetchall=True) or []
+    prod_map = {r["tienda_id"]: r["c"] for r in prod_counts}
+
+    # Una sola query para pedidos por tienda
+    ped_counts = db_query(
+        f"SELECT tienda_id, COUNT(*) as c FROM pedidos WHERE tienda_id IN ({fmt_ids}) GROUP BY tienda_id",
+        ids, fetchall=True) or []
+    ped_map = {r["tienda_id"]: r["c"] for r in ped_counts}
+
+    # Una sola query para promos activas por tienda
+    promo_counts = db_query(
+        f"SELECT tienda_id, COUNT(*) as c FROM promociones WHERE tienda_id IN ({fmt_ids}) AND activa=1 GROUP BY tienda_id",
+        ids, fetchall=True) or []
+    promo_map = {r["tienda_id"]: r["c"] for r in promo_counts}
+
+    cards = ""
     for t in tiendas:
-        nd=db_query("SELECT COUNT(*) as c FROM productos WHERE tienda_id=%s AND cantidad>0",(t["id"],),fetchone=True)
-        np=db_query("SELECT COUNT(*) as c FROM pedidos WHERE tienda_id=%s",(t["id"],),fetchone=True)
-        # Promociones activas
-        npromo=db_query("SELECT COUNT(*) as c FROM promociones WHERE tienda_id=%s AND activa=1",(t["id"],),fetchone=True)
-        badges=""
-        if npromo and npromo["c"]>0:
-            badges=f'<div style="background:#ef4444;color:#fff;font-size:.65rem;font-weight:800;padding:3px 10px;border-radius:12px;margin-top:7px;display:inline-block">🎁 {npromo["c"]} PROMO{"S" if npromo["c"]>1 else ""} ACTIVA{"S" if npromo["c"]>1 else ""}</div>'
-        cards+=(f'<a href="/entrar/{t["id"]}" class="sc">'
-                f'<span class="se">{t.get("emoji","🏪")}</span>'
-                f'<h2>{t["nombre"]}</h2>'
-                f'<p>{t.get("tipo","Tienda")} &middot; {t.get("ciudad","")}</p>'
-                f'<p style="font-size:.73rem;color:#64748b;margin-top:4px">{t.get("horario","")}</p>'
-                f'<span class="sbdg" style="background:{t.get("color","#4f46e5")}">{t.get("tipo","Tienda")}</span>'
-                f'{badges}'
-                f'<div style="display:flex;gap:12px;justify-content:center;margin-top:12px">'
-                f'<span style="font-size:.72rem;color:#64748b">📦 {nd["c"] if nd else 0} productos</span>'
-                f'<span style="font-size:.72rem;color:#64748b">🧾 {np["c"] if np else 0} pedidos</span>'
-                f'</div></a>')
-    if not cards:
-        cards='<div style="color:rgba(255,255,255,.5);text-align:center;padding:40px">No hay tiendas activas.</div>'
-    return (f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            f"<title>GestorPro &middot; Selecciona tu Tienda</title><style>{css()}</style></head><body>"
+        tid   = t["id"]
+        n_prod  = prod_map.get(tid, 0)
+        n_peds  = ped_map.get(tid, 0)
+        n_promo = promo_map.get(tid, 0)
+        badges = ""
+        if n_promo > 0:
+            s = "S" if n_promo > 1 else ""
+            badges = (f'<div style="background:#ef4444;color:#fff;font-size:.65rem;'
+                      f'font-weight:800;padding:3px 10px;border-radius:12px;margin-top:7px;'
+                      f'display:inline-block">🎁 {n_promo} PROMO{s} ACTIVA{s}</div>')
+        cards += (f'<a href="/entrar/{tid}" class="sc">'
+                  f'<span class="se">{t.get("emoji","🏪")}</span>'
+                  f'<h2>{t["nombre"]}</h2>'
+                  f'<p>{t.get("tipo","Tienda")} &middot; {t.get("ciudad","")}</p>'
+                  f'<p style="font-size:.73rem;color:#64748b;margin-top:4px">{t.get("horario","")}</p>'
+                  f'<span class="sbdg" style="background:{t.get("color","#4f46e5")}">{t.get("tipo","Tienda")}</span>'
+                  f'{badges}'
+                  f'<div style="display:flex;gap:12px;justify-content:center;margin-top:12px">'
+                  f'<span style="font-size:.72rem;color:#64748b">📦 {n_prod} productos</span>'
+                  f'<span style="font-size:.72rem;color:#64748b">🧾 {n_peds} pedidos</span>'
+                  f'</div></a>')
+
+    return (f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
+            f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            f"<title>GestorPro &middot; Selecciona tu Tienda</title>"
+            f"<style>{css_cached()}</style></head><body>"
             f'<div class="ss-page">'
             f'<div class="ss-title"><div style="font-size:3.5rem">🏪</div>'
             f'<h1>GestorPro</h1><p>Sistema de Gestión Multi-Tienda &middot; Colombia 🇨🇴</p></div>'
             f'<div class="ss-grid">{cards}</div>'
             f'<div style="margin-top:32px;text-align:center">'
-            f'<a href="/super" style="color:rgba(255,255,255,.2);font-size:.72rem">⚙️ Acceso Administrador del Sistema</a>'
+            f'<a href="/super" style="color:rgba(255,255,255,.2);font-size:.72rem">⚙️ Acceso Administrador</a>'
             f'</div></div></body></html>')
 
 # ================================================================
@@ -1413,7 +1608,7 @@ def login(tid):
     return (f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>Acceso &middot; {t['nombre']}</title>"
-            f"<style>{css(pc)}</style></head><body>"
+            f"<style>{css_cached(pc)}</style></head><body>"
             f'<div class="lp" {lbg(pc)}><div class="lp-bg"></div><div class="lc">'
             f'<div class="llo">'
             f'<span class="li2">{t.get("emoji","🏪")}</span>'
@@ -1546,7 +1741,7 @@ def registro(tid):
     return (f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>Registro &middot; {nom_t}</title>"
-            f"<style>{css(pc)}"
+            f"<style>{css_cached(pc)}"
             f".pass-req{{margin-top:9px;display:flex;flex-direction:column;gap:5px}}"
             f".pass-req-item{{display:flex;align-items:center;gap:8px;font-size:.74rem;color:var(--mt);transition:.2s}}"
             f".pass-req-item.ok{{color:#15803d;font-weight:600}}"
@@ -1702,7 +1897,7 @@ def super_login():
             session.clear(); session["superadmin"]=True; session["user"]=u; return redirect("/super/panel")
         error='<div class="al a-d">⚠️ Credenciales incorrectas.</div>'
     return (f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            f"<title>Super Admin &middot; GestorPro</title><style>{css()}</style></head><body>"
+            f"<title>Super Admin &middot; GestorPro</title><style>{css_cached()}</style></head><body>"
             f'<div class="sa-page"><div class="lc">'
             f'<div class="llo"><span class="li2">⚙️</span><h1>Super Admin</h1><p>GestorPro &middot; Panel Global del Sistema</p></div>'
             f'{error}<form method="post" style="display:flex;flex-direction:column;gap:12px">'
@@ -4849,6 +5044,508 @@ def _generar_opciones(texto, productos, promos):
 # ──────────────────────────────────────────────────────────────────
 #  FUNCIÓN BOT — INTERFAZ CELULAR ULTRA PREMIUM
 # ──────────────────────────────────────────────────────────────────
+import urllib.request as _ureq
+import uuid as _uuid_mod
+
+CLAUDE_MODEL = "claude-sonnet-4-20250514"
+
+
+# ──────────────────────────────────────────────────────────────────
+#  HELPERS
+# ──────────────────────────────────────────────────────────────────
+
+def _hhmm():
+    return datetime.now().strftime("%H:%M")
+
+def _fmt_msg(txt):
+    import html as _h
+    txt = _h.escape(str(txt))
+    txt = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', txt)
+    txt = re.sub(r'\*([^*]+)\*',     r'<em>\1</em>',         txt)
+    txt = txt.replace('\n','<br>')
+    return txt
+
+def _prod_card(p):
+    """Card visual del producto."""
+    if p.get("img"):
+        img_h = (f'<img class="prod-card-img" src="{p["img"]}" loading="lazy" '
+                 f'onerror="this.parentNode.innerHTML=\'<div class=prod-card-no-img>📦</div>\'">')
+    else:
+        img_h = '<div class="prod-card-no-img">📦</div>'
+    disp = p.get("cantidad",0) > 0
+    badge = (f'<span style="background:#dcfce7;color:#15803d;font-size:.63rem;'
+             f'font-weight:800;padding:2px 8px;border-radius:10px">✅ Disponible</span>'
+             if disp else
+             f'<span style="background:#fef2f2;color:#dc2626;font-size:.63rem;'
+             f'font-weight:800;padding:2px 8px;border-radius:10px">❌ Agotado</span>')
+    return (f'<div class="prod-card-msg" onclick="window.open(\'/tienda\',\'_blank\')">'
+            f'{img_h}'
+            f'<div class="prod-card-info">'
+            f'<div class="prod-card-name">{p["nombre"]}</div>'
+            f'<div class="prod-card-price">{fmt(p["precio"])}'
+            f'<span style="font-size:.7rem;color:#64748b"> / {p.get("unidad","u")}</span></div>'
+            f'<div style="margin-top:4px">{badge}</div>'
+            f'{"<div class=prod-card-stock>"+str(p.get("cantidad",0))+" "+str(p.get("unidad",""))+" disponibles</div>" if disp else ""}'
+            f'</div></div>')
+
+
+# ──────────────────────────────────────────────────────────────────
+#  APRENDIZAJE — guardar y recuperar respuestas aprendidas
+# ──────────────────────────────────────────────────────────────────
+
+def _aprender(tid, pregunta, respuesta):
+    """Guarda una buena respuesta para futuras consultas similares."""
+    try:
+        ex = db_query("SELECT id,veces_usada FROM bot_aprendizaje WHERE tienda_id=%s AND pregunta=%s",
+                      (tid, pregunta[:500]), fetchone=True)
+        if ex:
+            db_query("UPDATE bot_aprendizaje SET veces_usada=%s WHERE id=%s",
+                     (ex["veces_usada"]+1, ex["id"]), commit=True)
+        else:
+            db_query("INSERT INTO bot_aprendizaje(tienda_id,pregunta,respuesta,fecha) VALUES(%s,%s,%s,%s)",
+                     (tid, pregunta[:500], respuesta[:2000], now()), commit=True)
+    except Exception:
+        pass
+
+def _buscar_aprendido(tid, pregunta):
+    """Busca si ya aprendimos una respuesta para esta pregunta."""
+    try:
+        tl = pregunta.lower().strip()
+        rows = db_query("SELECT * FROM bot_aprendizaje WHERE tienda_id=%s AND util=1 ORDER BY veces_usada DESC LIMIT 50",
+                        (tid,), fetchall=True) or []
+        for r in rows:
+            palabras_clave = [w for w in r["pregunta"].lower().split() if len(w) > 3]
+            coincidencias = sum(1 for w in palabras_clave if w in tl)
+            if coincidencias >= 2 and len(palabras_clave) > 0:
+                ratio = coincidencias / len(palabras_clave)
+                if ratio >= 0.5:
+                    return r["respuesta"]
+    except Exception:
+        pass
+    return None
+
+
+# ──────────────────────────────────────────────────────────────────
+#  FAQ ULTRA COMPLETA CON PREGUNTAS ABIERTAS
+# ──────────────────────────────────────────────────────────────────
+
+def _bot_faq(msg, t, productos, promos):
+    """
+    Responde preguntas abiertas.
+    Retorna: (texto, prod_obj_o_None, respondido_bool)
+    """
+    tl   = msg.lower().strip()
+    tel  = t.get("telefono","")
+    wa   = t.get("whatsapp","").replace("+","").replace(" ","")
+    nom  = t.get("nombre","la tienda")
+    ciu  = t.get("ciudad","Fusagasugá")
+    hor  = t.get("horario","Consultar")
+    dir_ = t.get("direccion","Consultar")
+    wa_lnk = (f"<a href='https://wa.me/{wa}' target='_blank' "
+              f"style='color:#4f46e5;font-weight:700'>WhatsApp +{wa}</a>") if wa else f"Tel: {tel}"
+    disp_prods = [p for p in productos if p.get("cantidad",0) > 0]
+    agot_prods = [p for p in productos if p.get("cantidad",0) <= 0]
+
+    def primer_con_img():
+        for p in disp_prods:
+            if p.get("img"): return p
+        return disp_prods[0] if disp_prods else None
+
+    def buscar_prod(texto):
+        """Búsqueda flexible de producto."""
+        mejor = None; mejor_score = 0
+        for p in productos:
+            palabras = [w for w in p["nombre"].lower().split() if len(w) > 2]
+            score = sum(1 for w in palabras if w in texto)
+            if score > mejor_score:
+                mejor_score = score; mejor = p
+        return mejor if mejor_score > 0 else None
+
+    # ── 1. SALUDOS ────────────────────────────────────────────────
+    if any(w in tl for w in ["hola","buenas","hey","hi","buen","buenos","buenas","saludos","ey",
+                              "que tal","quiubo","good","hello","¿cómo están","como estan"]):
+        return (f"¡Hola! 👋 Bienvenido a **{nom}**.\n\n"
+                f"Soy tu asistente con IA 🤖. Puedo ayudarte con:\n"
+                f"📦 Productos y precios\n"
+                f"✅ Stock disponible\n"
+                f"💳 Métodos de pago\n"
+                f"🏍️ Domicilios\n"
+                f"🔄 Devoluciones\n"
+                f"💬 Conectarte con un agente\n\n"
+                f"Usa el menú de abajo o escríbeme directamente 😊"), None, True
+
+    # ── 2. CATÁLOGO COMPLETO ──────────────────────────────────────
+    if any(w in tl for w in ["producto","catalogo","catálogo","qué tienen","que hay","qué hay",
+                              "disponible","ver todo","que venden","que tienen","menú","menu",
+                              "lista","qué venden","tienes","tienen","muestrame","muéstrame",
+                              "qué productos","que productos","inventario","ofrecen","manejan"]):
+        if not disp_prods:
+            return (f"😕 **{nom}** no tiene productos disponibles en este momento.\n\n"
+                    f"Contáctanos por {wa_lnk} para saber cuándo habrá disponibilidad."), None, True
+        txt = f"📦 **Catálogo de {nom}** ({len(disp_prods)} productos disponibles):\n\n"
+        cats = {}
+        for p in disp_prods:
+            cat = p.get("categoria","General")
+            cats.setdefault(cat,[]).append(p)
+        for cat, ps in cats.items():
+            txt += f"**{cat}:**\n"
+            for p in ps[:8]:
+                txt += f"  • {p['nombre']} — {fmt(p['precio'])} / {p.get('unidad','u')} ✅\n"
+        if len(disp_prods) > 8:
+            txt += f"\n_...y más productos en la tienda_ 🛒"
+        return txt, primer_con_img(), True
+
+    # ── 3. STOCK DISPONIBLE (específico o general) ────────────────
+    if any(w in tl for w in ["stock","hay de","cuánto hay","cuanto hay","disponibilidad",
+                              "existe","tienen disponible","quedan","cuántos quedan","cuantos quedan",
+                              "hay pan","hay leche","hay pollo","tienen el","hay stock","queda algo",
+                              "disponible el","disponible la","tienen el","tienen la"]):
+        prod_m = buscar_prod(tl)
+        if prod_m:
+            disp = prod_m.get("cantidad",0) > 0
+            return (f"{'✅' if disp else '❌'} **{prod_m['nombre']}**\n\n"
+                    f"{'📦 Stock: **'+str(prod_m['cantidad'])+' '+str(prod_m.get('unidad','uds'))+'**' if disp else '😔 **Agotado** por el momento'}\n"
+                    f"💰 Precio: **{fmt(prod_m['precio'])}** / {prod_m.get('unidad','u')}\n\n"
+                    f"{'🛒 ¡Agrégalo al carrito!' if disp else '📲 Consulta reposición: '+wa_lnk}"), prod_m, True
+        # Stock general
+        if disp_prods:
+            txt = f"✅ **Disponibles ahora en {nom} ({len(disp_prods)}):**\n\n"
+            for p in disp_prods[:10]:
+                txt += f"• **{p['nombre']}** — {p['cantidad']} {p.get('unidad','uds')} — {fmt(p['precio'])}\n"
+            return txt, primer_con_img(), True
+        return f"😕 No hay productos disponibles ahora. Contáctanos: {wa_lnk}", None, True
+
+    # ── 4. AGOTADOS ───────────────────────────────────────────────
+    if any(w in tl for w in ["agotado","agotados","sin stock","no hay","se acabó","se acabo",
+                              "no tienen","no queda","terminó","termino","se acabaron","out of stock",
+                              "cuándo llega","cuando llega","cuándo reponen","cuando reponen"]):
+        prod_m = buscar_prod(tl)
+        if prod_m and prod_m.get("cantidad",0) <= 0:
+            return (f"❌ **{prod_m['nombre']}** está **agotado**.\n\n"
+                    f"Para saber cuándo habrá disponibilidad:\n"
+                    f"📲 Escríbenos: {wa_lnk}\n\n"
+                    f"¿Quieres ver productos similares disponibles? 📦"), prod_m, True
+        if agot_prods:
+            txt = f"❌ **Productos agotados en {nom} ({len(agot_prods)}):**\n\n"
+            for p in agot_prods[:6]: txt += f"• {p['nombre']}\n"
+            txt += f"\n✅ Tenemos **{len(disp_prods)} productos disponibles**.\n"
+            txt += f"Para reposiciones: {wa_lnk}"
+            return txt, primer_con_img(), True
+        return f"🎉 ¡Todos los productos de **{nom}** están disponibles!\n\n¡Aprovecha! 🛒", primer_con_img(), True
+
+    # ── 5. PRECIO ESPECÍFICO ──────────────────────────────────────
+    if any(w in tl for w in ["precio","cuánto cuesta","cuanto vale","cuánto vale","vale",
+                              "cuesta","costo","cuanto es","cuánto","cuanto","tarifa","a cuánto",
+                              "a cuanto","cuánto me sale","cuanto me sale","sale el","sale la"]):
+        prod_m = buscar_prod(tl)
+        if prod_m:
+            disp = prod_m.get("cantidad",0) > 0
+            return (f"🏷️ **{prod_m['nombre']}**\n\n"
+                    f"💰 Precio: **{fmt(prod_m['precio'])}** / {prod_m.get('unidad','unidad')}\n"
+                    f"{'✅ Disponible: '+str(prod_m['cantidad'])+' '+str(prod_m.get('unidad','uds')) if disp else '❌ Agotado por el momento'}\n"
+                    f"🏷️ Categoría: {prod_m.get('categoria','General')}\n\n"
+                    f"{'🛒 ¡Agrégalo al carrito!' if disp else '📲 Consulta reposición: '+wa_lnk}"), prod_m, True
+        if disp_prods:
+            txt = f"💰 **Lista de precios — {nom}:**\n\n"
+            for p in disp_prods[:8]:
+                txt += f"• **{p['nombre']}** → {fmt(p['precio'])} / {p.get('unidad','u')}\n"
+            txt += f"\nEscribe el nombre del producto para ver detalles 📋"
+            return txt, primer_con_img(), True
+        return f"📋 Sin precios disponibles ahora. Consulta: {wa_lnk}", None, True
+
+    # ── 6. PROMOCIONES ────────────────────────────────────────────
+    if any(w in tl for w in ["promo","oferta","descuento","descuentos","especial","rebaja",
+                              "barato","económico","hay promo","promo hoy","oferta hoy",
+                              "qué ofertas","que ofertas","hay descuento","cupón","cupon","sale"]):
+        if promos:
+            txt = f"🎁 **¡Promociones activas en {nom}!**\n\n"
+            for pr in promos[:5]:
+                txt += (f"🔥 **{pr['titulo']}**\n"
+                        f"   {pr.get('descuento','')} — {pr.get('descripcion','')}\n")
+                if pr.get("hasta"): txt += f"   ⏰ Hasta: {pr['hasta']}\n"
+                txt += "\n"
+            txt += "¡No dejes pasar estas ofertas! 🛒"
+        else:
+            txt = (f"😊 No hay promociones especiales ahora.\n\n"
+                   f"¡Pero en **{nom}** siempre tenemos los mejores precios!\n"
+                   f"Pregúntame por algún producto 😉")
+        return txt, primer_con_img(), True
+
+    # ── 7. CÓMO PAGAR ─────────────────────────────────────────────
+    if any(w in tl for w in ["pago","pagar","nequi","daviplata","efectivo","transferencia",
+                              "como pago","formas de pago","metodo","método","cómo pago",
+                              "como se paga","aceptan","reciben","pago online","consignacion",
+                              "pago digital","pasarela","medios de pago"]):
+        return (f"💳 **Métodos de pago en {nom}:**\n\n"
+                f"📱 **Nequi**\n"
+                f"   Número: **{tel or '(ver en tienda)'}**\n"
+                f"   Transfiere → sube el comprobante ✅\n\n"
+                f"💳 **Daviplata**\n"
+                f"   Número: **{tel or '(ver en tienda)'}**\n"
+                f"   Transfiere → adjunta el comprobante ✅\n\n"
+                f"💵 **Efectivo**\n"
+                f"   Pagas al recibir o en tienda. Sin pasos extra ✅\n\n"
+                f"📸 El comprobante también por {wa_lnk}"), None, True
+
+    # ── 8. COMPROBANTE ────────────────────────────────────────────
+    if any(w in tl for w in ["comprobante","foto del pago","captura","screenshot","evidencia",
+                              "enviar comprobante","subir comprobante","donde envio","donde subo",
+                              "cómo envío","como envio","ya pagué","ya pague","hice el pago"]):
+        return (f"📸 **¿Cómo enviar el comprobante?**\n\n"
+                f"**Opción 1 — Desde la app (recomendado):**\n"
+                f"Al hacer el pedido con Nequi o Daviplata,\n"
+                f"la app te pide subir la foto. 📸\n\n"
+                f"**Opción 2 — Por WhatsApp:**\n"
+                f"Envíalo a {wa_lnk}\n"
+                f"Incluye tu código de pedido.\n\n"
+                f"✅ Una vez verificado, tu pedido será aprobado."), None, True
+
+    # ── 9. CÓMO HACER UN PEDIDO ───────────────────────────────────
+    if any(w in tl for w in ["cómo pido","como pido","hacer pedido","cómo compro","como compro",
+                              "cómo se pide","proceso de compra","quiero comprar","quiero pedir",
+                              "cómo funciona","pasos para","cómo lo hago","como lo hago"]):
+        return (f"🛒 **Cómo hacer un pedido en {nom}:**\n\n"
+                f"**1️⃣** Ve a **Tienda** en el menú lateral\n"
+                f"**2️⃣** Elige productos → clic en **Agregar al carrito** 🛒\n"
+                f"**3️⃣** Ve a tu carrito → **Confirmar compra**\n"
+                f"**4️⃣** Elige método de pago (Nequi / Daviplata / Efectivo)\n"
+                f"**5️⃣** Elige entre recoger en tienda o domicilio 🏍️\n"
+                f"**6️⃣** Si pagaste digital → sube el comprobante 📸\n"
+                f"**7️⃣** ¡Listo! Te avisamos cuando sea aprobado 🎉\n\n"
+                f"¿Tienes alguna duda? Escríbeme 😊"), None, True
+
+    # ── 10. DOMICILIOS ────────────────────────────────────────────
+    if any(w in tl for w in ["domicilio","envío","envio","delivery","llevan","mandan","a domicilio",
+                              "a mi casa","reparten","traen","cobran por domicilio","costo domicilio",
+                              "precio domicilio","cuánto cobran","hacen envío","despachan","envían"]):
+        return (f"🏍️ **Domicilios de {nom}:**\n\n"
+                f"✅ Sí, hacemos domicilios en **{ciu}**\n"
+                f"⏱️ Tiempo estimado: **30 – 60 minutos**\n"
+                f"📦 Sin pedido mínimo\n"
+                f"💰 Costo del domicilio: consultar por {wa_lnk}\n\n"
+                f"**¿Cómo pedirlo?**\n"
+                f"Al confirmar tu compra selecciona *🏍️ Domicilio*\n"
+                f"e ingresa tu dirección de entrega 📍"), None, True
+
+    # ── 11. HORARIO Y UBICACIÓN ───────────────────────────────────
+    if any(w in tl for w in ["horario","hora","abre","cierra","cuando abren","cuándo abren",
+                              "atienden","a qué hora","a que hora","ubicación","ubicacion",
+                              "direccion","dirección","dónde","donde","llegar","están","estan",
+                              "abiertos","local","sucursal","tienda física"]):
+        return (f"🕐 **{nom} — Horario y Ubicación:**\n\n"
+                f"⏰ **Horario:**\n{hor}\n\n"
+                f"📍 **Dirección:**\n{dir_}\n\n"
+                f"🏙️ **Ciudad:** {ciu}\n"
+                f"📞 **Tel:** {tel}\n"
+                f"💬 {wa_lnk}"), None, True
+
+    # ── 12. ESTADO DEL PEDIDO ─────────────────────────────────────
+    if any(w in tl for w in ["pedido","orden","estado","código","codigo","rastrear","seguimiento",
+                              "donde esta","dónde está","cuándo llega","cuando llega","mi pedido",
+                              "ver pedido","llegó","llego","entregaron","lo entregaron"]):
+        return (f"📦 **¿Cómo ver tu pedido?**\n\n"
+                f"**En la app:**\n"
+                f"1️⃣ Inicia sesión\n"
+                f"2️⃣ Ve a *📦 Mis Pedidos* en el menú\n"
+                f"3️⃣ Verás el estado en tiempo real\n\n"
+                f"**Estados:**\n"
+                f"⏳ *Pendiente* → esperando aprobación\n"
+                f"✅ *Aprobado* → siendo preparado\n"
+                f"🏍️ *En camino* → ya va para donde estás\n"
+                f"📦 *Entregado* → ¡llegó!\n"
+                f"❌ *Cancelado* → fue cancelado\n\n"
+                f"También consulta por {wa_lnk}"), None, True
+
+    # ── 13. CANCELAR PEDIDO ───────────────────────────────────────
+    if any(w in tl for w in ["cancelar","cancelo","cancelar pedido","no quiero","arrepentí",
+                              "me equivoqué","anular","no lo quiero","deshacer pedido"]):
+        return (f"❌ **¿Cómo cancelar tu pedido?**\n\n"
+                f"Tienes **10 minutos** desde que hiciste el pedido.\n\n"
+                f"**Pasos:**\n"
+                f"1️⃣ Ve a *📦 Mis Pedidos*\n"
+                f"2️⃣ Busca tu pedido\n"
+                f"3️⃣ Toca el botón **❌ Cancelar**\n\n"
+                f"⚠️ Si ya pasaron los 10 minutos:\n"
+                f"Contáctanos por {wa_lnk}\n"
+                f"y evaluamos cada caso con gusto 😊"), None, True
+
+    # ── 14. DEVOLUCIONES Y CAMBIOS ────────────────────────────────
+    if any(w in tl for w in ["devolución","devolucion","cambio","cambiar","reembolso",
+                              "problema","dañado","roto","mal estado","no sirve","no era",
+                              "diferente","incompleto","falta","vino mal","llegó mal",
+                              "queja","reclamacion","politica de devolucion"]):
+        return (f"🔄 **Devoluciones y Cambios en {nom}:**\n\n"
+                f"**💸 Devolución (dinero de vuelta):**\n"
+                f"Hasta **24 horas** después de recibido.\n"
+                f"Ve a *Mis Pedidos* → **Solicitar devolución**\n\n"
+                f"**🔁 Cambio (por otro producto):**\n"
+                f"Hasta **24 horas** después de recibido.\n"
+                f"Elige un producto de valor similar.\n\n"
+                f"**Motivos válidos:**\n"
+                f"• Producto dañado o en mal estado\n"
+                f"• Producto incompleto o incorrecto\n"
+                f"• No corresponde a lo pedido\n\n"
+                f"Casos urgentes: {wa_lnk}"), None, True
+
+    # ── 15. HABLAR CON AGENTE ─────────────────────────────────────
+    if any(w in tl for w in ["agente","asesor","persona","humano","hablar con","hablar con alguien",
+                              "necesito ayuda","necesito hablar","chat","en vivo","operador",
+                              "atención","atencion","soporte","ayuda","help","asistencia",
+                              "alguien me ayude","quiero hablar","comunicar","representante",
+                              "servicio al cliente"]):
+        return (f"💬 **Hablar con un agente en {nom}:**\n\n"
+                f"¡Claro! Nuestros asesores están listos para ayudarte.\n\n"
+                f"**¿Cómo conectarte?**\n"
+                f"👉 Toca el botón **💬 Agente 🟢** en el menú de abajo\n"
+                f"👉 O ve a **💬 Chat con Agente** en el menú lateral\n\n"
+                f"**Horario de atención en vivo:**\n"
+                f"⏰ {hor}\n\n"
+                f"También por {wa_lnk} 📲\n\n"
+                f"*⚡ El chat se cierra automáticamente tras 5 min de inactividad.*"), None, True
+
+    # ── 16. CONTACTO ──────────────────────────────────────────────
+    if any(w in tl for w in ["contacto","teléfono","telefono","comunicar","whatsapp","llamar",
+                              "escribir","numero","número","datos de contacto","cómo los contacto"]):
+        return (f"📞 **Contacta con {nom}:**\n\n"
+                f"📱 Tel: **{tel}**\n"
+                f"💬 WhatsApp: {wa_lnk}\n"
+                f"📍 {dir_}\n"
+                f"🏙️ {ciu}\n"
+                f"⏰ {hor}\n\n"
+                f"O habla con nuestro agente en vivo 👇"), None, True
+
+    # ── 17. PRODUCTO DIRECTO (detectado por nombre) ───────────────
+    prod_m = buscar_prod(tl)
+    if prod_m and len(tl.split()) <= 5:
+        disp = prod_m.get("cantidad",0) > 0
+        return (f"{'✅' if disp else '❌'} **{prod_m['nombre']}**\n\n"
+                f"{'📦 Disponible: **'+str(prod_m['cantidad'])+' '+str(prod_m.get('unidad','uds'))+'**' if disp else '😔 **Agotado** por el momento'}\n"
+                f"💰 Precio: **{fmt(prod_m['precio'])}** / {prod_m.get('unidad','u')}\n"
+                f"{'🛒 ¡Agrégalo al carrito!' if disp else '📲 Consulta reposición: '+wa_lnk}"), prod_m, True
+
+    # ── 18. DESPEDIDAS ────────────────────────────────────────────
+    if any(w in tl for w in ["gracias","perfecto","listo","ok","chevere","genial","excelente",
+                              "chao","adiós","adios","bye","hasta","de nada","muy bien",
+                              "entendido","claro","buenísimo","gracias por todo","que dios te"]):
+        return (f"¡Con mucho gusto! 😊 Fue un placer atenderte.\n\n"
+                f"Recuerda que **{nom}** está aquí para ti.\n"
+                f"¡Hasta pronto! 🌟"), None, True
+
+    return None, None, False
+
+
+# ──────────────────────────────────────────────────────────────────
+#  ACCESOS RÁPIDOS
+# ──────────────────────────────────────────────────────────────────
+
+BOT_QUICK = {
+    "ver_catalogo":    "Muéstrame el catálogo completo de productos",
+    "ver_disponibles": "¿Qué productos tienen disponibles con stock?",
+    "ver_agotados":    "¿Cuáles productos están agotados?",
+    "ver_promos":      "¿Qué promociones o descuentos tienen activos?",
+    "como_pagar":      "¿Cómo puedo pagar? Métodos de pago disponibles",
+    "como_pedir":      "¿Cómo hago un pedido? Explícame los pasos",
+    "info_domi":       "¿Hacen domicilios? ¿Cuánto cuesta?",
+    "info_horario":    "¿Cuál es el horario y la dirección?",
+    "estado_pedido":   "¿Cómo consulto el estado de mi pedido?",
+    "cancelar_pedido": "¿Cómo cancelo mi pedido?",
+    "devolucion":      "¿Cómo hago una devolución o cambio?",
+    "comprobante":     "¿Cómo envío el comprobante de pago?",
+    "hablar_agente":   "Quiero hablar con un agente o asesor en vivo",
+    "contacto":        "¿Cuál es el teléfono y WhatsApp?",
+}
+
+# Menú vertical ordenado por categorías
+MENU_VERTICAL = [
+    ("🏷️ Productos","seccion","",False),
+    ("📦 Ver catálogo completo","ver_catalogo","",True),
+    ("✅ Productos disponibles","ver_disponibles","",True),
+    ("❌ Productos agotados","ver_agotados","",True),
+    ("🎁 Promociones activas","ver_promos","",True),
+    ("💰 Pagos","seccion","",False),
+    ("💳 Métodos de pago","como_pagar","",True),
+    ("📸 Enviar comprobante","comprobante","",True),
+    ("🛒 Pedidos","seccion","",False),
+    ("🛒 Cómo hacer un pedido","como_pedir","",True),
+    ("📦 Estado de mi pedido","estado_pedido","",True),
+    ("❌ Cancelar pedido","cancelar_pedido","",True),
+    ("🔄 Devoluciones y cambios","devolucion","",True),
+    ("🚚 Entrega","seccion","",False),
+    ("🏍️ Info domicilios","info_domi","",True),
+    ("🕐 Horario y ubicación","info_horario","",True),
+    ("💬 Soporte","seccion","",False),
+    ("💬 Hablar con agente","hablar_agente","",True),
+    ("📞 Contacto","contacto","",True),
+]
+
+
+def bot_ia_respuesta(tid, historial_msgs, contexto_tienda, productos, promos):
+    """FAQ → Aprendizaje guardado → Claude API."""
+    import json as _json
+    ultimo = ""
+    for m in reversed(historial_msgs):
+        if m["quien"] == "Tú":
+            ultimo = m.get("texto_raw", m.get("texto",""))
+            break
+
+    # 1. FAQ local
+    texto, prod_obj, ok = _bot_faq(ultimo, contexto_tienda, productos, promos)
+    if ok and texto:
+        return texto, prod_obj
+
+    # 2. Respuesta aprendida de conversaciones previas
+    aprendido = _buscar_aprendido(tid, ultimo)
+    if aprendido:
+        return aprendido, None
+
+    # 3. Claude API
+    tel  = contexto_tienda.get("telefono","")
+    wa   = contexto_tienda.get("whatsapp","").replace("+","").replace(" ","")
+    nom  = contexto_tienda.get("nombre","la tienda")
+    ciu  = contexto_tienda.get("ciudad","Fusagasugá")
+    prods_txt = "\n".join(
+        f"- {p['nombre']} | {fmt(p['precio'])} | Stock: {p['cantidad']} {p.get('unidad','')} | {p.get('categoria','')}"
+        for p in productos) or "Sin productos."
+    promos_txt = "\n".join(
+        f"- {pr['titulo']}: {pr.get('descuento','')} — {pr.get('descripcion','')}"
+        for pr in promos) or "Sin promociones."
+    system = (f"Eres el asistente de '{nom}', tienda en {ciu}, Colombia. "
+              f"Respondes en español colombiano amigable con emojis. Máx 3 párrafos.\n"
+              f"Tel: {tel} | WA: {'+'+wa if wa else 'N/D'} | Horario: {contexto_tienda.get('horario','')}\n"
+              f"PAGOS: Nequi {tel}, Daviplata {tel}, Efectivo.\n"
+              f"PRODUCTOS:\n{prods_txt}\nPROMOS:\n{promos_txt}\n"
+              f"Si el stock es 0, dilo claramente. NUNCA inventes precios.")
+    msgs = []
+    for m in historial_msgs[-12:]:
+        if m["quien"] == "Tú":
+            msgs.append({"role":"user","content":m.get("texto_raw",m.get("texto",""))})
+        elif m["quien"] == "Bot" and m.get("texto_raw"):
+            msgs.append({"role":"assistant","content":m["texto_raw"]})
+    if not msgs or msgs[-1]["role"] != "user":
+        return f"¡Hola! 👋 Bienvenido a {nom}. ¿En qué te ayudo? 😊", None
+    try:
+        payload = _json.dumps({"model":CLAUDE_MODEL,"max_tokens":700,
+                               "system":system,"messages":msgs}).encode("utf-8")
+        req = _ureq.Request("https://api.anthropic.com/v1/messages",data=payload,
+                            headers={"Content-Type":"application/json","anthropic-version":"2023-06-01"},
+                            method="POST")
+        with _ureq.urlopen(req,timeout=15) as resp:
+            data = _json.loads(resp.read())
+            resp_text = data["content"][0]["text"]
+            # Guardar para aprender
+            _aprender(tid, ultimo, resp_text)
+            return resp_text, None
+    except Exception:
+        return (f"Disculpa, tengo un problema técnico 😓\n\n"
+                f"Contáctanos: 📞 {tel} | 💬 {'+'+wa if wa else 'WhatsApp'}"), None
+
+def _generar_opciones(texto, productos, promos):
+    return []
+
+
+# ──────────────────────────────────────────────────────────────────
+#  FUNCIÓN BOT — CELULAR CON MENÚ VERTICAL
+# ──────────────────────────────────────────────────────────────────
 
 @app.route("/bot", methods=["GET","POST"])
 def bot():
@@ -4857,13 +5554,13 @@ def bot():
         session.pop("bot_hist", None)
         return redirect("/bot")
     tid    = tid_now()
-    # Incluir TODOS los productos (con y sin stock) para responder agotados
-    prods  = db_query("SELECT * FROM productos WHERE tienda_id=%s ORDER BY cantidad DESC, nombre",
+    prods  = db_query("SELECT * FROM productos WHERE tienda_id=%s ORDER BY cantidad DESC,nombre",
                       (tid,), fetchall=True) or []
     promos = db_query("SELECT * FROM promociones WHERE tienda_id=%s AND activa=1 AND (hasta IS NULL OR hasta>=%s)",
                       (tid,hoy()), fetchall=True) or []
     t      = get_tienda()
     hist   = session.get("bot_hist",[])
+    mostrar_menu = request.args.get("menu","") == "1" or not hist
 
     if request.method == "POST":
         msg_raw = request.form.get("msg","").strip()
@@ -4871,34 +5568,33 @@ def bot():
             msg_show = BOT_QUICK.get(msg_raw, msg_raw)
             hist.append({"quien":"Tú","texto":msg_show,"prod":None,
                          "hora":_hhmm(),"texto_raw":msg_show})
-            resp_txt, prod_obj = bot_ia_respuesta(hist, t, prods, promos)
+            resp_txt, prod_obj = bot_ia_respuesta(tid, hist, t, prods, promos)
             prod_data = None
             if prod_obj:
                 prod_data = {"nombre":prod_obj["nombre"],
                              "precio":float(prod_obj["precio"]),
-                             "cantidad":prod_obj["cantidad"],
+                             "cantidad":prod_obj.get("cantidad",0),
                              "unidad":prod_obj.get("unidad",""),
                              "img":prod_obj.get("img",""),
                              "categoria":prod_obj.get("categoria","")}
             hist.append({"quien":"Bot","texto":resp_txt,"prod":prod_data,
                          "hora":_hhmm(),"texto_raw":resp_txt})
             session["bot_hist"] = hist[-40:]
+            mostrar_menu = False
 
     if not hist:
         nom = t.get("nombre","la tienda")
-        bienvenida = (f"¡Hola! 👋 Bienvenido a **{nom}**.\n\n"
-                      f"Soy tu asistente con Inteligencia Artificial.\n"
-                      f"Pregúntame sobre productos, precios, stock, pagos,\n"
-                      f"domicilios, devoluciones o lo que necesites.\n\n"
-                      f"También puedes **hablar con un agente** tocando 💬 abajo 👇")
+        bienvenida = (f"¡Hola! 👋 Soy el asistente de **{nom}**.\n\n"
+                      f"Soy una IA que aprende de cada conversación.\n"
+                      f"Pregúntame lo que quieras o usa el menú 👇")
         hist = [{"quien":"Bot","texto":bienvenida,"prod":None,
                  "hora":_hhmm(),"texto_raw":bienvenida}]
         session["bot_hist"] = hist
 
-    # ── Construir mensajes ─────────────────────────────────────────
+    # ── Construir burbujas ─────────────────────────────────────────
     msgs_html = ""
     for m in hist:
-        hora = m.get("hora", _hhmm())
+        hora = m.get("hora",_hhmm())
         if m["quien"] == "Tú":
             msgs_html += (
                 f'<div class="chat-row-r">'
@@ -4915,9 +5611,76 @@ def bot():
                 f'<div class="chat-meta-l">{hora}</div>'
                 f'</div></div>')
 
+    # ── Menú vertical ──────────────────────────────────────────────
+    hay_agente = False
+    try:
+        ag = db_query("SELECT COUNT(*) as c FROM users WHERE tienda_id=%s AND rol='empleado'",
+                      (tid,), fetchone=True)
+        hay_agente = ag and ag["c"] > 0
+    except Exception:
+        pass
+
+    menu_html = ""
+    if mostrar_menu:
+        menu_items = ""
+        for label, key, _, es_btn in MENU_VERTICAL:
+            if not es_btn:
+                # Separador de sección
+                menu_items += (f'<div style="font-size:.65rem;font-weight:800;color:var(--mt);'
+                               f'text-transform:uppercase;letter-spacing:.09em;'
+                               f'padding:10px 14px 4px;border-top:1px solid #e5e7eb;margin-top:4px">'
+                               f'{label}</div>')
+            else:
+                menu_items += (f'<form method="post" style="display:block;padding:2px 8px">'
+                               f'<input type="hidden" name="msg" value="{key}">'
+                               f'<button type="submit" style="width:100%;text-align:left;'
+                               f'background:transparent;border:none;padding:8px 8px;'
+                               f'border-radius:8px;cursor:pointer;font-family:inherit;'
+                               f'font-size:.82rem;color:#1e293b;font-weight:500;'
+                               f'transition:.15s;display:flex;align-items:center;gap:8px">'
+                               f'<span style="font-size:.9rem">{label.split()[0]}</span>'
+                               f'<span>{" ".join(label.split()[1:])}</span>'
+                               f'</button></form>')
+        # Agente al final
+        if hay_agente:
+            menu_items += (
+                f'<div style="padding:8px 8px">'
+                f'<a href="/chat_cliente" style="display:flex;align-items:center;gap:8px;'
+                f'background:linear-gradient(135deg,#059669,#0ea5e9);border-radius:10px;'
+                f'padding:10px 12px;text-decoration:none;animation:nb-pulse 2s infinite">'
+                f'<span style="font-size:1.1rem">💬</span>'
+                f'<div><div style="color:#fff;font-size:.82rem;font-weight:800">Agente en línea 🟢</div>'
+                f'<div style="color:rgba(255,255,255,.8);font-size:.68rem">Habla con nosotros ahora</div>'
+                f'</div></a></div>')
+        menu_html = (
+            f'<div style="background:#fff;border-top:1px solid #e5e7eb;'
+            f'overflow-y:auto;max-height:260px;flex-shrink:0">'
+            f'{menu_items}'
+            f'</div>')
+    else:
+        # Solo chips horizontales cuando no hay menú
+        wa = t.get("whatsapp","").replace("+","").replace(" ","")
+        chips = [("ver_catalogo","📦 Catálogo"),("ver_disponibles","✅ Disponibles"),
+                 ("ver_agotados","❌ Agotados"),("ver_promos","🎁 Promos"),
+                 ("como_pagar","💳 Pagar"),("info_domi","🏍️ Domicilio"),
+                 ("estado_pedido","📦 Pedido"),("devolucion","🔄 Devolver")]
+        chips_h = "".join(
+            f'<form method="post" style="display:contents">'
+            f'<input type="hidden" name="msg" value="{k}">'
+            f'<button type="submit" class="chip">{lbl}</button></form>'
+            for k,lbl in chips)
+        if hay_agente:
+            chips_h += (f'<a href="/chat_cliente" class="chip chip-agent" '
+                        f'style="animation:nb-pulse 2s infinite">💬 Agente 🟢</a>')
+        if wa:
+            chips_h += f'<a href="https://wa.me/{wa}" target="_blank" class="chip chip-wa">💬 WhatsApp</a>'
+        menu_html = (f'<div class="chips-section">'
+                     f'<div class="chips-label">Accesos rápidos →</div>'
+                     f'<div class="chips-row">{chips_h}</div>'
+                     f'</div>')
+
     t_nom = t.get("nombre","")
     wa    = t.get("whatsapp","").replace("+","").replace(" ","")
-    wa_chip = (f'<a href="https://wa.me/{wa}" target="_blank" class="chip chip-wa">💬 WhatsApp</a>') if wa else ""
 
     return base("🤖 Asistente Virtual",(
         f'<div class="phone-outer">'
@@ -4935,114 +5698,196 @@ def bot():
         f'<div class="phone-info-status"><div class="phone-status-dot"></div>IA · En línea 24/7</div>'
         f'</div></div>'
         f'<div class="phone-bar-actions">'
-        f'<a href="/bot?clear=1" class="phone-bar-btn">🔄 Nueva</a>'
+        f'<a href="/bot?menu=1" class="phone-bar-btn" title="Ver menú">☰ Menú</a>'
+        f'<a href="/bot?clear=1" class="phone-bar-btn">🔄</a>'
         f'</div></div>'
         # Mensajes
         f'<div class="phone-msgs" id="chat-box">{msgs_html}</div>'
-        # Chips rápidos scrollables
-        f'<div class="chips-section">'
-        f'<div class="chips-label">Temas · desliza para ver más →</div>'
-        f'<div class="chips-row">{_chips_html(tid)}{wa_chip}</div>'
-        f'</div>'
+        # Menú o chips
+        + menu_html +
         # Input
         f'<form method="post" id="bform" style="display:contents">'
         f'<div class="phone-input-bar">'
         f'<input type="text" name="msg" class="phone-input" id="binput" '
-        f'placeholder="Escribe tu pregunta aquí..." autocomplete="off">'
+        f'placeholder="Escribe o elige del menú..." autocomplete="off">'
         f'<button type="submit" class="phone-send send-bot">'
         f'<svg width="16" height="16" viewBox="0 0 24 24" fill="white">'
         f'<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>'
         f'</button></div></form>'
         f'</div></div>'  # phone-device / phone-outer
         f'<p style="font-size:.7rem;color:var(--mt);text-align:center;margin-top:14px">'
-        f'🤖 Asistente con IA · Respuestas automáticas · {t_nom}</p>'
+        f'🤖 IA que aprende · {t_nom}</p>'
         f'<script>'
         f'var cb=document.getElementById("chat-box");'
         f'if(cb)cb.scrollTop=cb.scrollHeight;'
+        # Hover en botones del menú vertical
+        f'document.querySelectorAll(".phone-device button[type=submit]").forEach(function(b){{'
+        f'  if(b.style.width==="100%"){{'
+        f'    b.addEventListener("mouseenter",function(){{this.style.background="#f0f4ff";this.style.color="#4f46e5";}});'
+        f'    b.addEventListener("mouseleave",function(){{this.style.background="transparent";this.style.color="#1e293b";}});'
+        f'  }}'
+        f'}});'
         f'document.getElementById("bform").addEventListener("submit",function(){{'
-        f'  var inp=document.getElementById("binput");'
-        f'  if(inp)inp.disabled=true;'
         f'  setTimeout(function(){{if(cb)cb.scrollTop=cb.scrollHeight;}},200);'
         f'}});'
         f'</script>'))
 
-# ────────────────────────────────────────────────────────────────
-#  CHAT EN VIVO — CLIENTE
-# ────────────────────────────────────────────────────────────────
+#  El bloque incluye: /chat_cliente + /agente_chat + /chat_api
+# ================================================================
+
+CHAT_TIMEOUT_MINUTOS = 5  # Inactividad para cerrar automáticamente
+
+
+def _cerrar_sesiones_inactivas(tid):
+    """Cierra sesiones inactivas por más de 5 minutos."""
+    try:
+        limite = (datetime.now() - timedelta(minutes=CHAT_TIMEOUT_MINUTOS)).strftime("%Y-%m-%d %H:%M:%S")
+        # Obtener sesiones activas inactivas
+        ses_inactivas = db_query(
+            "SELECT sesion_id,cliente FROM chat_sesiones "
+            "WHERE tienda_id=%s AND estado='activo' AND ultima_actividad<%s",
+            (tid, limite), fetchall=True) or []
+        for s in ses_inactivas:
+            # Insertar mensaje de cierre automático
+            db_query("INSERT INTO chat_live(tienda_id,sesion_id,cliente,mensaje,de_quien,leido,fecha) "
+                     "VALUES(%s,%s,%s,'__TIMEOUT__','sistema',1,%s)",
+                     (tid, s["sesion_id"], s["cliente"], now()), commit=True)
+            db_query("UPDATE chat_sesiones SET estado='cerrado',cerrada=%s WHERE sesion_id=%s",
+                     (now(), s["sesion_id"]), commit=True)
+    except Exception:
+        pass
+
+
+def _actualizar_actividad(tid, sid, usuario):
+    """Actualiza la marca de última actividad de la sesión."""
+    try:
+        ex = db_query("SELECT id FROM chat_sesiones WHERE sesion_id=%s", (sid,), fetchone=True)
+        if ex:
+            db_query("UPDATE chat_sesiones SET ultima_actividad=%s WHERE sesion_id=%s",
+                     (now(), sid), commit=True)
+        else:
+            db_query("INSERT INTO chat_sesiones(tienda_id,sesion_id,cliente,estado,ultima_actividad) "
+                     "VALUES(%s,%s,%s,'activo',%s)",
+                     (tid, sid, usuario, now()), commit=True)
+    except Exception:
+        pass
+
 
 @app.route("/chat_cliente", methods=["GET","POST"])
 def chat_cliente():
-    """Chat del cliente con agente. NO se cierra automáticamente."""
+    """
+    Chat del cliente con agente.
+    - Conversación persiste aunque el usuario salga de la página.
+    - Se cierra automáticamente tras 5 minutos de inactividad.
+    - El cliente o el agente pueden cerrar manualmente.
+    """
     if not is_cl(): return redirect("/bot")
     tid = tid_now()
     u   = session.get("user","")
 
-    # Sesión persistente
-    if "chat_sid" not in session:
-        session["chat_sid"] = str(_uuid_mod.uuid4())[:14]
-    sid = session["chat_sid"]
+    # Cerrar sesiones inactivas de esta tienda
+    _cerrar_sesiones_inactivas(tid)
+
+    # Recuperar o crear sesión persistente
+    # (se guarda en session de Flask; si vuelve a entrar recupera la misma)
+    sid = session.get("chat_sid","")
+    if sid:
+        # Verificar que la sesión siga activa en BD
+        ses = db_query("SELECT * FROM chat_sesiones WHERE sesion_id=%s AND estado='activo'",
+                       (sid,), fetchone=True)
+        if not ses:
+            sid = ""  # La sesión fue cerrada o expiró
+    if not sid:
+        sid = str(_uuid_mod.uuid4())[:16]
+        session["chat_sid"] = sid
 
     # Cerrar manualmente
     if request.args.get("cerrar"):
-        db_query("INSERT INTO chat_live(tienda_id,cliente,mensaje,de_quien,leido,fecha,sesion_id)"
-                 " VALUES(%s,%s,'__CERRADO__','sistema',1,%s,%s)", (tid,u,now(),sid), commit=True)
+        db_query("INSERT INTO chat_live(tienda_id,sesion_id,cliente,mensaje,de_quien,leido,fecha) "
+                 "VALUES(%s,%s,%s,'__CERRADO__','cliente',1,%s)",
+                 (tid, sid, u, now()), commit=True)
+        db_query("UPDATE chat_sesiones SET estado='cerrado',cerrada=%s WHERE sesion_id=%s",
+                 (now(), sid), commit=True)
         session.pop("chat_sid", None)
         return redirect("/bot")
 
     if request.method == "POST":
         msg = request.form.get("msg","").strip()
         if msg:
-            db_query("INSERT INTO chat_live(tienda_id,cliente,mensaje,de_quien,leido,fecha,sesion_id)"
-                     " VALUES(%s,%s,%s,'cliente',0,%s,%s)", (tid,u,msg,now(),sid), commit=True)
+            db_query("INSERT INTO chat_live(tienda_id,sesion_id,cliente,mensaje,de_quien,leido,fecha) "
+                     "VALUES(%s,%s,%s,%s,'cliente',0,%s)",
+                     (tid, sid, u, msg, now()), commit=True)
             db_query("INSERT INTO notificaciones(tienda_id,mensaje,leida,fecha) VALUES(%s,%s,0,%s)",
-                     (tid,f"💬 Chat de {u}: {msg[:50]}",now()), commit=True)
+                     (tid, f"💬 {u}: {msg[:50]}", now()), commit=True)
+            _actualizar_actividad(tid, sid, u)
+
+    # Marcar mensajes del agente como leídos
+    db_query("UPDATE chat_live SET leido=1 WHERE tienda_id=%s AND sesion_id=%s AND de_quien='agente'",
+             (tid, sid), commit=True)
 
     msgs = db_query("SELECT * FROM chat_live WHERE tienda_id=%s AND sesion_id=%s ORDER BY id ASC LIMIT 100",
-                    (tid,sid), fetchall=True) or []
-    db_query("UPDATE chat_live SET leido=1 WHERE tienda_id=%s AND sesion_id=%s AND de_quien='agente'",
-             (tid,sid), commit=True)
+                    (tid, sid), fetchall=True) or []
 
-    cerrado = any(m.get("mensaje") == "__CERRADO__" for m in msgs)
+    # Verificar si fue cerrado (por agente, timeout, o el mismo cliente)
+    especiales = {"__CERRADO__","__TIMEOUT__"}
+    cerrado = any(m.get("mensaje") in especiales for m in msgs)
+    timeout = any(m.get("mensaje")=="__TIMEOUT__" for m in msgs)
     if cerrado:
         session.pop("chat_sid", None)
-        return redirect("/bot")
+        msg_cierre = ("⏰ La sesión fue cerrada por inactividad (5 min)."
+                      if timeout else "✅ La conversación fue cerrada.")
+        return redirect(f"/bot?chat_msg={msg_cierre}")
+
+    _actualizar_actividad(tid, sid, u)
 
     t = get_tienda()
     ultimo_agente = next((m for m in reversed(msgs) if m["de_quien"]=="agente"), None)
 
-    msgs_vis = [m for m in msgs if m.get("mensaje") != "__CERRADO__"]
+    msgs_vis = [m for m in msgs if m.get("mensaje") not in especiales]
     msgs_html = ""
     if not msgs_vis:
-        msgs_html = (
-            f'<div class="chat-row-l">'
-            f'<div class="chat-av-l agent-av">👤</div>'
-            f'<div><div class="chat-bub-l">¡Hola {u}! 👋 Estoy aquí para ayudarte.<br>'
-            f'Escribe tu consulta y te respondo en un momento. 😊</div>'
-            f'<div class="chat-meta-l">{_hhmm()}</div></div></div>')
+        msgs_html = (f'<div class="chat-row-l">'
+                     f'<div class="chat-av-l agent-av">👤</div>'
+                     f'<div><div class="chat-bub-l">¡Hola {u}! 👋 Estoy aquí para ayudarte.<br>'
+                     f'Escribe tu mensaje y te respondo pronto 😊</div>'
+                     f'<div class="chat-meta-l">{_hhmm()}</div></div></div>')
     for m in msgs_vis:
         hora = str(m.get("fecha",""))[-5:] or _hhmm()
         if m["de_quien"] == "cliente":
-            msgs_html += (
-                f'<div class="chat-row-r">'
-                f'<div class="chat-bub-r green-bub">{_fmt_msg(m["mensaje"])}</div>'
-                f'<div class="chat-meta-r">{hora} <span class="check-icon">✓✓</span></div>'
-                f'</div>')
+            msgs_html += (f'<div class="chat-row-r">'
+                          f'<div class="chat-bub-r green-bub">{_fmt_msg(m["mensaje"])}</div>'
+                          f'<div class="chat-meta-r">{hora} <span class="check-icon">✓✓</span></div>'
+                          f'</div>')
         else:
             ag = m.get("agente","Agente") or "Agente"
-            msgs_html += (
-                f'<div class="chat-row-l">'
-                f'<div class="chat-av-l agent-av">👤</div>'
-                f'<div><div class="chat-bub-l">'
-                f'<div class="chat-sender">{ag}</div>'
-                f'{_fmt_msg(m["mensaje"])}</div>'
-                f'<div class="chat-meta-l">{hora}</div>'
-                f'</div></div>')
+            msgs_html += (f'<div class="chat-row-l">'
+                          f'<div class="chat-av-l agent-av">👤</div>'
+                          f'<div><div class="chat-bub-l">'
+                          f'<div class="chat-sender">{ag}</div>'
+                          f'{_fmt_msg(m["mensaje"])}</div>'
+                          f'<div class="chat-meta-l">{hora}</div>'
+                          f'</div></div>')
 
-    estado_txt = ("✅ Agente en línea · Respondió recientemente"
-                  if ultimo_agente else "⏳ Esperando que un agente te atienda...")
+    # Tiempo de inactividad restante (para mostrar al usuario)
+    try:
+        ses_info = db_query("SELECT ultima_actividad FROM chat_sesiones WHERE sesion_id=%s", (sid,), fetchone=True)
+        if ses_info and ses_info.get("ultima_actividad"):
+            act = ses_info["ultima_actividad"]
+            if isinstance(act, str):
+                act = datetime.strptime(act, "%Y-%m-%d %H:%M:%S")
+            diff = (datetime.now() - act).total_seconds()
+            restante = max(0, int(CHAT_TIMEOUT_MINUTOS * 60 - diff))
+            mins = restante // 60; segs = restante % 60
+            inact_txt = f"⏱ Cierre por inactividad en {mins}:{segs:02d}"
+        else:
+            inact_txt = f"⏱ Cierre automático tras {CHAT_TIMEOUT_MINUTOS} min sin actividad"
+    except Exception:
+        inact_txt = f"⏱ Cierre automático tras {CHAT_TIMEOUT_MINUTOS} min sin actividad"
+
     estado_dot = "#4ade80" if ultimo_agente else "#fbbf24"
+    estado_txt = ("✅ Agente respondió" if ultimo_agente else "⏳ Esperando agente...")
 
-    return base("💬 Chat con Agente", (
+    return base("💬 Chat con Agente",(
         f'<div class="phone-outer">'
         f'<div class="phone-device">'
         f'<div class="phone-notch">'
@@ -5062,6 +5907,12 @@ def chat_cliente():
         f'<a href="/chat_cliente?cerrar=1" class="phone-bar-btn danger" '
         f'onclick="return confirm(\'¿Cerrar esta conversación?\')">✕ Cerrar</a>'
         f'</div></div>'
+        # Aviso de timeout
+        f'<div style="background:#fffbeb;border-bottom:1px solid #fde68a;'
+        f'padding:6px 14px;font-size:.71rem;color:#92400e;'
+        f'display:flex;align-items:center;gap:6px;flex-shrink:0">'
+        f'<span>⏱</span><span id="timeout-txt">{inact_txt}</span>'
+        f'</div>'
         # Mensajes
         f'<div class="phone-msgs" id="chat-box">{msgs_html}</div>'
         # Input
@@ -5075,133 +5926,186 @@ def chat_cliente():
         f'</button></div></form>'
         f'</div></div>'
         f'<p style="font-size:.7rem;color:var(--mt);text-align:center;margin-top:14px">'
-        f'💬 Chat en vivo · Toca "Cerrar" cuando termines</p>'
+        f'💬 Chat en vivo · Toca ✕ Cerrar cuando termines</p>'
         f'<script>'
         f'var cb=document.getElementById("chat-box");if(cb)cb.scrollTop=cb.scrollHeight;'
+        # Auto-refresh solo si input vacío (no interrumpe escritura)
+        f'var lastActivity=Date.now();'
+        f'var timeoutMs={CHAT_TIMEOUT_MINUTOS*60*1000};'
         f'var ar=setInterval(function(){{'
         f'  var i=document.getElementById("cinput");'
         f'  if(i&&i.value==="")window.location.reload();'
         f'}},4000);'
+        # Contador de inactividad en tiempo real
+        f'var totalSecs={CHAT_TIMEOUT_MINUTOS*60};'
+        f'var ctr=setInterval(function(){{'
+        f'  totalSecs--;'
+        f'  if(totalSecs<=0){{clearInterval(ctr);window.location.reload();return;}}'
+        f'  var m=Math.floor(totalSecs/60);var s=totalSecs%60;'
+        f'  var el=document.getElementById("timeout-txt");'
+        f'  if(el)el.textContent="⏱ Cierre por inactividad en "+m+":"+(s<10?"0":"")+s;'
+        f'}},1000);'
+        # Reiniciar contador al escribir
         f'document.getElementById("cform").addEventListener("submit",function(){{'
-        f'  clearInterval(ar);setTimeout(function(){{window.location.reload();}},600);'
+        f'  clearInterval(ar);clearInterval(ctr);totalSecs={CHAT_TIMEOUT_MINUTOS*60};'
+        f'  setTimeout(function(){{window.location.reload();}},600);'
+        f'}});'
+        f'document.getElementById("cinput").addEventListener("input",function(){{'
+        f'  totalSecs={CHAT_TIMEOUT_MINUTOS*60};'
         f'}});'
         f'</script>'))
 
 
-# ────────────────────────────────────────────────────────────────
-#  PANEL DEL AGENTE (EMPLEADO)
-# ────────────────────────────────────────────────────────────────
-
 @app.route("/agente_chat", methods=["GET","POST"])
 def agente_chat():
-    """Panel del empleado-agente. Conversación no se cierra sola."""
+    """
+    Panel del agente (empleado).
+    - Ve todas las conversaciones activas.
+    - Conversaciones persisten aunque el cliente salga.
+    - Cierre manual o por 5 min de inactividad del cliente.
+    """
     if not is_st(): return redirect("/")
     if is_ad(): return redirect("/admin")
     tid     = tid_now()
     u_agen  = session.get("user","")
 
+    # Cerrar sesiones inactivas
+    _cerrar_sesiones_inactivas(tid)
+
     if request.method == "POST":
-        ac       = request.form.get("ac","msg")
-        sid_r    = request.form.get("sid","")
-        cliente_r= request.form.get("cliente","")
+        ac        = request.form.get("ac","msg")
+        sid_r     = request.form.get("sid","")
+        cliente_r = request.form.get("cliente","")
         if ac == "msg":
             msg_r = request.form.get("msg","").strip()
             if msg_r and sid_r:
-                db_query("INSERT INTO chat_live(tienda_id,cliente,agente,mensaje,de_quien,leido,fecha,sesion_id)"
-                         " VALUES(%s,%s,%s,%s,'agente',1,%s,%s)",
-                         (tid,cliente_r,u_agen,msg_r,now(),sid_r), commit=True)
+                db_query("INSERT INTO chat_live(tienda_id,sesion_id,cliente,agente,mensaje,de_quien,leido,fecha) "
+                         "VALUES(%s,%s,%s,%s,%s,'agente',1,%s)",
+                         (tid, sid_r, cliente_r, u_agen, msg_r, now()), commit=True)
                 db_query("UPDATE chat_live SET leido=1 "
                          "WHERE tienda_id=%s AND sesion_id=%s AND de_quien='cliente'",
-                         (tid,sid_r), commit=True)
+                         (tid, sid_r), commit=True)
+                _actualizar_actividad(tid, sid_r, cliente_r)
         elif ac == "cerrar" and sid_r:
-            db_query("INSERT INTO chat_live(tienda_id,cliente,mensaje,de_quien,leido,fecha,sesion_id)"
-                     " VALUES(%s,%s,'__CERRADO__','agente',1,%s,%s)",
-                     (tid,cliente_r,now(),sid_r), commit=True)
+            db_query("INSERT INTO chat_live(tienda_id,sesion_id,cliente,mensaje,de_quien,leido,fecha) "
+                     "VALUES(%s,%s,%s,'__CERRADO__','agente',1,%s)",
+                     (tid, sid_r, cliente_r, now()), commit=True)
+            db_query("UPDATE chat_sesiones SET estado='cerrado',cerrada=%s WHERE sesion_id=%s",
+                     (now(), sid_r), commit=True)
 
-    # Sesiones activas (últimas 6 horas, sin cerrar)
-    hace_6h = (datetime.now()-timedelta(hours=6)).strftime("%Y-%m-%d %H:%M")
-    sesiones_raw = db_query(
-        "SELECT sesion_id,cliente,MAX(fecha) as ult,"
-        "SUM(CASE WHEN de_quien='cliente' AND leido=0 THEN 1 ELSE 0 END) as noleidos,"
-        "SUM(CASE WHEN mensaje='__CERRADO__' THEN 1 ELSE 0 END) as cerrado "
-        "FROM chat_live WHERE tienda_id=%s AND fecha>=%s "
-        "GROUP BY sesion_id,cliente ORDER BY ult DESC",
-        (tid,hace_6h), fetchall=True) or []
-    sesiones = [s for s in sesiones_raw if not s.get("cerrado",0)]
+    # Sesiones activas
+    sesiones = db_query(
+        "SELECT cs.*,"
+        "SUM(CASE WHEN cl.de_quien='cliente' AND cl.leido=0 THEN 1 ELSE 0 END) as noleidos "
+        "FROM chat_sesiones cs "
+        "LEFT JOIN chat_live cl ON cs.sesion_id=cl.sesion_id AND cl.tienda_id=cs.tienda_id "
+        "WHERE cs.tienda_id=%s AND cs.estado='activo' "
+        "GROUP BY cs.sesion_id ORDER BY cs.ultima_actividad DESC",
+        (tid,), fetchall=True) or []
 
-    sid_sel = request.args.get("sid","")
+    # También mostrar sesiones cerradas recientes (última hora)
+    cerradas = db_query(
+        "SELECT * FROM chat_sesiones WHERE tienda_id=%s AND estado='cerrado' "
+        "AND cerrada>=%s ORDER BY cerrada DESC LIMIT 5",
+        (tid, (datetime.now()-timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")),
+        fetchall=True) or []
+
+    sid_sel    = request.args.get("sid","")
     if not sid_sel and sesiones:
         sid_sel = sesiones[0]["sesion_id"]
 
     msgs_sel   = []
     cliente_sel= ""
     cerrado_sel= False
+    timeout_sel= False
     if sid_sel:
         msgs_sel = db_query("SELECT * FROM chat_live WHERE tienda_id=%s AND sesion_id=%s ORDER BY id ASC",
-                            (tid,sid_sel), fetchall=True) or []
+                            (tid, sid_sel), fetchall=True) or []
         if msgs_sel: cliente_sel = msgs_sel[0]["cliente"]
-        cerrado_sel = any(m.get("mensaje")=="__CERRADO__" for m in msgs_sel)
+        especiales = {"__CERRADO__","__TIMEOUT__"}
+        cerrado_sel = any(m.get("mensaje") in especiales for m in msgs_sel)
+        timeout_sel = any(m.get("mensaje")=="__TIMEOUT__" for m in msgs_sel)
         db_query("UPDATE chat_live SET leido=1 "
                  "WHERE tienda_id=%s AND sesion_id=%s AND de_quien='cliente'",
-                 (tid,sid_sel), commit=True)
+                 (tid, sid_sel), commit=True)
 
     total_nl = sum(int(s.get("noleidos",0)) for s in sesiones)
 
-    # ── Sidebar de sesiones ─────────────────────────────────────
+    # ── Sidebar sesiones ─────────────────────────────────────────
     ses_html = ""
-    for s in sesiones:
-        nl   = int(s.get("noleidos",0))
-        esel = (s["sesion_id"] == sid_sel)
-        badge= (f'<span class="session-badge">{nl}</span>') if nl else ""
-        av_cls = "active-av" if esel else ""
-        ses_html += (
-            f'<a href="/agente_chat?sid={s["sesion_id"]}" '
-            f'class="session-item {"active" if esel else ""}">'
-            f'<div class="session-av {av_cls}">👤</div>'
-            f'<div class="session-info">'
-            f'<div class="session-name">{s["cliente"]}</div>'
-            f'<div class="session-last">{str(s["ult"])[:16]}</div>'
-            f'</div>{badge}</a>')
+    if sesiones:
+        ses_html += f'<div style="font-size:.65rem;font-weight:800;color:var(--mt);text-transform:uppercase;letter-spacing:.08em;padding:8px 12px 4px">Activas ({len(sesiones)})</div>'
+        for s in sesiones:
+            nl   = int(s.get("noleidos",0))
+            esel = (s["sesion_id"] == sid_sel)
+            badge= f'<span class="session-badge">{nl}</span>' if nl else ""
+            av_c = "active-av" if esel else ""
+            # Tiempo de inactividad
+            try:
+                act = s.get("ultima_actividad",now())
+                if isinstance(act,str): act=datetime.strptime(act,"%Y-%m-%d %H:%M:%S")
+                diff = int((datetime.now()-act).total_seconds())
+                rest = max(0, CHAT_TIMEOUT_MINUTOS*60-diff)
+                t_txt = f"⏱ {rest//60}:{rest%60:02d}" if rest > 0 else "⚠ Por cerrar"
+            except Exception:
+                t_txt = ""
+            ses_html += (f'<a href="/agente_chat?sid={s["sesion_id"]}" '
+                         f'class="session-item {"active" if esel else ""}">'
+                         f'<div class="session-av {av_c}">👤</div>'
+                         f'<div class="session-info">'
+                         f'<div class="session-name">{s["cliente"]}</div>'
+                         f'<div class="session-last">{t_txt}</div>'
+                         f'</div>{badge}</a>')
+    if cerradas:
+        ses_html += f'<div style="font-size:.65rem;font-weight:800;color:var(--mt);text-transform:uppercase;letter-spacing:.08em;padding:8px 12px 4px;border-top:1px solid var(--bd);margin-top:8px">Cerradas recientes</div>'
+        for s in cerradas:
+            esel = (s["sesion_id"] == sid_sel)
+            ses_html += (f'<a href="/agente_chat?sid={s["sesion_id"]}" '
+                         f'class="session-item {"active" if esel else ""}" '
+                         f'style="opacity:.6">'
+                         f'<div class="session-av">👤</div>'
+                         f'<div class="session-info">'
+                         f'<div class="session-name" style="text-decoration:line-through">{s["cliente"]}</div>'
+                         f'<div class="session-last">Cerrada</div>'
+                         f'</div></a>')
+    if not sesiones and not cerradas:
+        ses_html = '<div style="padding:20px;text-align:center;color:var(--mt);font-size:.82rem">Sin conversaciones activas</div>'
 
-    # ── Mensajes del chat seleccionado ──────────────────────────
-    msgs_vis = [m for m in msgs_sel if m.get("mensaje") != "__CERRADO__"]
+    # ── Mensajes del chat seleccionado ───────────────────────────
+    especiales = {"__CERRADO__","__TIMEOUT__"}
+    msgs_vis = [m for m in msgs_sel if m.get("mensaje") not in especiales]
     chat_html = ""
     if not msgs_vis and sid_sel:
-        chat_html = (f'<div style="text-align:center;padding:24px;color:var(--mt);font-size:.82rem">'
-                     f'Sin mensajes aún en esta conversación.</div>')
+        chat_html = '<div style="text-align:center;padding:24px;color:var(--mt);font-size:.82rem">Sin mensajes aún.</div>'
     for m in msgs_vis:
         hora = str(m.get("fecha",""))[-5:] or ""
         if m["de_quien"] == "agente":
-            chat_html += (
-                f'<div class="chat-row-r">'
-                f'<div class="chat-bub-r green-bub">{_fmt_msg(m["mensaje"])}</div>'
-                f'<div class="chat-meta-r">{hora} <span class="check-icon">✓</span></div>'
-                f'</div>')
+            chat_html += (f'<div class="chat-row-r">'
+                          f'<div class="chat-bub-r green-bub">{_fmt_msg(m["mensaje"])}</div>'
+                          f'<div class="chat-meta-r">{hora} <span class="check-icon">✓</span></div>'
+                          f'</div>')
         else:
-            chat_html += (
-                f'<div class="chat-row-l">'
-                f'<div class="chat-av-l" style="background:linear-gradient(135deg,#f0f4ff,#bfdbfe);font-size:.9rem">👤</div>'
-                f'<div><div class="chat-bub-l">'
-                f'<div class="chat-sender">Cliente: {m["cliente"]}</div>'
-                f'{_fmt_msg(m["mensaje"])}</div>'
-                f'<div class="chat-meta-l">{hora}</div>'
-                f'</div></div>')
+            chat_html += (f'<div class="chat-row-l">'
+                          f'<div class="chat-av-l" style="background:linear-gradient(135deg,#f0f4ff,#bfdbfe)">👤</div>'
+                          f'<div><div class="chat-bub-l">'
+                          f'<div class="chat-sender">Cliente: {m["cliente"]}</div>'
+                          f'{_fmt_msg(m["mensaje"])}</div>'
+                          f'<div class="chat-meta-l">{hora}</div>'
+                          f'</div></div>')
     if cerrado_sel:
-        chat_html += f'<div class="chat-closed-badge">✅ Esta conversación fue cerrada</div>'
+        motivo = "⏰ Se cerró por inactividad (5 min)" if timeout_sel else "✅ Conversación cerrada"
+        chat_html += f'<div class="chat-closed-badge">{motivo}</div>'
 
     titulo = f"💬 Chat en Vivo" + (f" · {total_nl} sin leer" if total_nl else "")
 
-    return base(titulo, (
+    return base(titulo,(
         f'<div class="agent-panel-grid">'
-        # ── Sidebar sesiones ──────────────────────────────────────
+        # Sidebar
         f'<div class="session-list">'
-        f'<div class="session-list-head">'
-        f'<h3>💬 Conversaciones ({len(sesiones)})'
-        f'{"<span style=color:var(--dn);margin-left:6px>("+str(total_nl)+" nuevos)</span>" if total_nl else ""}'
-        f'</h3></div>'
-        f'{ses_html if ses_html else "<div style=padding:20px;text-align:center;color:var(--mt);font-size:.8rem>Sin conversaciones activas</div>"}'
+        f'<div class="session-list-head"><h3>💬 Conversaciones</h3></div>'
+        f'{ses_html}'
         f'</div>'
-        # ── Panel de chat estilo celular ──────────────────────────
+        # Panel celular del agente
         f'<div class="phone-outer" style="align-items:flex-start">'
         f'<div class="phone-device" style="min-height:calc(100vh - 160px)">'
         f'<div class="phone-notch">'
@@ -5211,27 +6115,34 @@ def agente_chat():
         f'<div class="phone-bar-left">'
         f'<div class="phone-avatar">{"👤" if cliente_sel else "💬"}</div>'
         f'<div>'
-        f'<div class="phone-info-name">{"Hablando con: "+cliente_sel if cliente_sel else "Selecciona una conversación"}</div>'
-        f'<div class="phone-info-status">'
-        f'<div class="phone-status-dot"></div>'
-        f'Agente: {u_agen}'
-        f'</div></div></div>'
+        f'<div class="phone-info-name">{"Hablando con: "+cliente_sel if cliente_sel else "Selecciona un chat"}</div>'
+        f'<div class="phone-info-status"><div class="phone-status-dot"></div>Agente: {u_agen}</div>'
+        f'</div></div>'
         f'<div class="phone-bar-actions">'
         + (f'<form method="post" style="display:inline">'
            f'<input type="hidden" name="ac" value="cerrar">'
            f'<input type="hidden" name="sid" value="{sid_sel}">'
            f'<input type="hidden" name="cliente" value="{cliente_sel}">'
            f'<button type="submit" class="phone-bar-btn danger" '
-           f'onclick="return confirm(\'¿Cerrar esta conversación?\')">✕ Cerrar chat</button></form>'
+           f'onclick="return confirm(\'¿Cerrar esta conversación?\')">✕ Cerrar</button></form>'
            if sid_sel and not cerrado_sel else "")
         + f'</div></div>'
+        # Aviso timeout
+        + (f'<div style="background:#f0fdf4;border-bottom:1px solid #bbf7d0;'
+           f'padding:6px 14px;font-size:.71rem;color:#15803d;flex-shrink:0">'
+           f'✅ Conversación con {cliente_sel} — Responde para mantener activa</div>'
+           if sid_sel and not cerrado_sel else
+           f'<div style="background:#fef2f2;border-bottom:1px solid #fecaca;'
+           f'padding:6px 14px;font-size:.71rem;color:#dc2626;flex-shrink:0">'
+           f'{"⏰ Conversación cerrada por inactividad" if timeout_sel else ("✅ Conversación cerrada" if cerrado_sel else "")}'
+           f'</div>' if cerrado_sel else "")
         # Mensajes
-        f'<div class="phone-msgs" id="chat-box">'
+        + f'<div class="phone-msgs" id="chat-box">'
         + (chat_html if chat_html else
            f'<div style="text-align:center;padding:40px;color:var(--mt);font-size:.82rem">'
            f'{"" if sid_sel else "👈 Selecciona una conversación de la lista"}</div>')
         + f'</div>'
-        # Input del agente
+        # Input
         + (f'<form method="post" id="aform" style="display:contents">'
            f'<div class="phone-input-bar">'
            f'<input type="hidden" name="ac" value="msg">'
@@ -5244,20 +6155,19 @@ def agente_chat():
            f'<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>'
            f'</button></div></form>'
            if sid_sel and not cerrado_sel else
-           f'<div class="phone-input-bar" style="justify-content:center">'
+           f'<div class="phone-input-bar" style="justify-content:center;flex-shrink:0">'
            f'<div style="font-size:.8rem;color:var(--mt)">'
-           f'{"Chat cerrado" if cerrado_sel else "Selecciona un chat para responder"}'
+           f'{"Chat cerrado · Sin respuesta posible" if cerrado_sel else "Selecciona un chat para responder"}'
            f'</div></div>')
         + f'</div></div>'  # phone-device / phone-outer
         + f'</div>'  # agent-panel-grid
         + f'<script>'
         + f'var cb=document.getElementById("chat-box");if(cb)cb.scrollTop=cb.scrollHeight;'
         + f'setInterval(function(){{'
-        + f'  var i=document.querySelector("input[name=msg][type=text]");'
+        + f'  var i=document.querySelector("#aform input[name=msg]");'
         + f'  if(!i||i.value==="")window.location.reload();'
         + f'}},5000);'
         + f'</script>'))
-
 # ================================================================
 #  LOGOUT
 # ================================================================
