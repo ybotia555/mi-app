@@ -7,7 +7,7 @@
 #
 #  SUPER ADMIN → http://127.0.0.1:5000/super
 #    usuario: superadmin  |  clave: Super@1234!
-#
+
 #  NUEVAS FEATURES v13:
 #   ✅ Pasarela de pago: Nequi/Daviplata/Efectivo con instrucciones
 #   ✅ Recuperación de contraseña por email (simulado con código)
