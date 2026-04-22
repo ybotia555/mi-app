@@ -1221,6 +1221,186 @@ textarea{resize:vertical;min-height:72px}
   border:1px solid #fecaca;margin:8px 0}
 
 @keyframes bubbleIn{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+RESPONSIVE_CSS = 
+/* ════════════════════════════════════════════════════════════════
+   VIEWPORT META — ya está en base(), solo asegúrate que esté:
+   <meta name="viewport" content="width=device-width,initial-scale=1">
+════════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════════════
+   HAMBURGER BUTTON — visible solo en móvil
+════════════════════════════════════════════════════════════════ */
+.hamburger{
+  display:none;position:fixed;top:12px;left:12px;z-index:999;
+  width:40px;height:40px;border-radius:10px;border:none;cursor:pointer;
+  background:var(--sb);box-shadow:0 2px 10px rgba(0,0,0,.25);
+  flex-direction:column;align-items:center;justify-content:center;gap:5px}
+.hamburger span{width:20px;height:2px;background:#fff;border-radius:2px;
+  transition:all .25s;display:block}
+.hamburger.open span:nth-child(1){transform:rotate(45deg) translate(5px,5px)}
+.hamburger.open span:nth-child(2){opacity:0;transform:translateX(-6px)}
+.hamburger.open span:nth-child(3){transform:rotate(-45deg) translate(5px,-5px)}
+
+/* Overlay oscuro detrás de sidebar en móvil */
+.sidebar-overlay{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);
+  z-index:199;backdrop-filter:blur(2px)}
+.sidebar-overlay.show{display:block}
+@media(max-width:1024px){
+base(): .sidebar{width:220px}
+  .main{margin-left:220px}
+  .kg{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .fg2{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+  .tc-grid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+  .ss-grid{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+  .agent-panel-grid{grid-template-columns:200px 1fr}
+  .g2{grid-template-columns:1fr 1fr;gap:14px}
+  .pago-grid{grid-template-columns:repeat(3,1fr);gap:10px}
+}
+@media(max-width:768px){
+
+  /* ── Sidebar: oculta y se desliza con hamburguesa ── */
+  .sidebar{
+    transform:translateX(-100%);
+    transition:transform .25s ease;
+    width:272px;
+    z-index:201}
+  .sidebar.mobile-open{transform:translateX(0)}
+  .main{margin-left:0 !important}
+  .hamburger{display:flex}
+
+  /* ── Topbar ── */
+  .tb{padding:10px 14px 10px 60px}
+  .tb h2{font-size:.95rem}
+  .ct{padding:14px}
+
+  /* ── Grids de métricas → 2 columnas ── */
+  .kg{grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
+  .kc{padding:13px}
+  .kv{font-size:1.3rem}
+  .ki{width:36px;height:36px;font-size:1rem}
+
+  /* ── Grids de formularios → 1 columna ── */
+  .fg2{grid-template-columns:1fr}
+  .g2{grid-template-columns:1fr;gap:12px}
+  .c2{grid-column:span 1}
+
+  /* ── Tabla → scroll horizontal ── */
+  .tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{min-width:520px}
+  th,td{padding:8px 10px;font-size:.75rem}
+
+  /* ── Pagos → 1 columna ── */
+  .pago-grid{grid-template-columns:1fr;gap:10px}
+  .pago-card{padding:14px 12px;display:flex;align-items:center;gap:12px;text-align:left}
+  .pago-check{margin:0;flex-shrink:0}
+  .pago-icon{font-size:1.6rem;margin-bottom:0}
+  .pago-name{font-size:.88rem}
+  .pago-desc{font-size:.72rem}
+
+  /* ── Store selector ── */
+  .ss-page{padding:20px 14px}
+  .ss-grid{grid-template-columns:1fr;gap:14px;max-width:100%}
+  .ss-title h1{font-size:1.8rem}
+  .sc{padding:20px 16px}
+
+  /* ── Login card ── */
+  .lp{padding:12px}
+  .lc{padding:24px 18px;border-radius:16px}
+  .llo h1{font-size:1.25rem}
+  .li2{font-size:2.4rem}
+
+  /* ── Botones ── */
+  .btn{font-size:.77rem;padding:9px 14px}
+  .blg{padding:11px 18px;font-size:.83rem}
+  .bsm{padding:5px 9px;font-size:.68rem}
+  /* botones en fila → stack en pantallas muy pequeñas */
+  .fr{gap:6px}
+
+  /* ── Sections y cards ── */
+  .sec{border-radius:12px;margin-bottom:14px}
+  .sh{padding:12px 14px}
+  .sh h3{font-size:.85rem}
+  .sb2{padding:14px}
+
+  /* ── Cards producto ── */
+  .pg{grid-template-columns:repeat(2,1fr);gap:12px}
+  .pc img{height:130px}
+  .pcb{padding:10px}
+  .pcn{font-size:.84rem}
+  .pcp{font-size:1rem}
+
+  /* ── Chat agente: quita el grid y pone columna ── */
+  .agent-panel-grid{
+    grid-template-columns:1fr;
+    height:auto;
+    gap:12px}
+  /* En móvil: lista de sesiones arriba, chat abajo */
+  .session-list{max-height:180px;overflow-y:auto}
+
+  /* ── Phone device (bot/chat) → ocupa todo el ancho ── */
+  .phone-outer{padding:0}
+  .phone-device{
+    max-width:100%;
+    border-radius:0;
+    box-shadow:none;
+    min-height:calc(100vh - 120px)}
+  .phone-notch{display:none}
+  .phone-bar{border-radius:0}
+  .phone-msgs{min-height:280px}
+  .phone-input-bar{border-radius:0}
+
+  /* ── Topbar del bot en celular real → más compacto ── */
+  .phone-info-name{font-size:.8rem}
+  .phone-info-status{font-size:.65rem}
+  .phone-bar-btn{padding:4px 8px;font-size:.68rem}
+
+  /* ── Dashboard cards (dc) ── */
+  .dg{grid-template-columns:1fr 1fr;gap:8px}
+  .dc{padding:13px}
+
+  /* ── Texto general ── */
+  body{font-size:14px}
+  label{font-size:.66rem}
+  .ph{font-size:.65rem}
+  input[type=text],input[type=email],input[type=password],
+  input[type=tel],input[type=number],select,textarea{
+    font-size:.84rem;padding:9px 11px}
+
+  /* ── Notificaciones topbar ── */
+  .tb-r{gap:7px}
+  .nw a{font-size:1.05rem}
+
+  /* ── Oculta columnas de tabla menos importantes en móvil ── */
+  .hide-mobile{display:none !important}
+
+  /* ── Super admin ── */
+  .sa-page{padding:14px}
+  .tc-grid{grid-template-columns:1fr}
+  .tc-stats{grid-template-columns:repeat(3,1fr)}
+
+  /* ── WA Float ── */
+  .wa-float{width:48px;height:48px;bottom:18px;right:18px;font-size:1.3rem}
+}
+@media(max-width:420px){
+  .kg{grid-template-columns:1fr 1fr;gap:8px}
+  .kv{font-size:1.15rem}
+  .pg{grid-template-columns:1fr 1fr;gap:8px}
+  .pc img{height:110px}
+  .tb h2{font-size:.85rem}
+  .ct{padding:10px}
+  .ss-title h1{font-size:1.5rem}
+  .lc{padding:20px 14px}
+  .btn.blg{font-size:.8rem}
+  .phone-bar-actions{gap:4px}
+  .phone-bar-btn{padding:3px 7px;font-size:.65rem}
+}
+@media(min-width:1280px){
+  .kg{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+  .ct{padding:32px}
+  .sec{margin-bottom:24px}
+}
+
 """
 
 WA_SVG='<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>'
@@ -1395,43 +1575,73 @@ def css_cached(primary="#4f46e5"):
         _CSS_CACHE[primary] = css(primary)
     return _CSS_CACHE[primary]
 def base(title, content, tid=None):
-    """
-    base() optimizado: usa css_cached() y agrupa la query de
-    notificaciones con db_multi() en lugar de una query separada.
-    """
     hs = li()
     ml = "margin-left:248px" if hs else "margin-left:0"
     t  = get_tienda(tid)
     pr = t.get("color","#4f46e5") if t else "#4f46e5"
-
-    dot  = ""
-    nb2  = ""
+    dot = ""; nb2 = ""
     if hs and is_st() and tid_now():
         row = db_query("SELECT COUNT(*) as c FROM notificaciones WHERE tienda_id=%s AND leida=0",
                        (tid_now(),), fetchone=True)
-        if row and row["c"] > 0:
-            dot = '<span class="nd"></span>'
+        if row and row["c"] > 0: dot = '<span class="nd"></span>'
         nb2 = f'<div class="nw"><a href="/notificaciones" style="font-size:1.2rem;color:var(--mt)">🔔{dot}</a></div>'
-
     cb2 = ""
     if is_cl():
         nc  = sum((session.get("carrito") or {}).values())
         cb2 = f'<a href="/carrito" class="btn bg bsm">🛒 ({nc})</a>'
 
-    return (f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
-            f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
-            f"<title>{title} &middot; GestorPro</title>"
-            f"<style>{css_cached(pr)}</style>"
-            # Hint al navegador para precargar conexión a Railway
-            f'<link rel="preconnect" href="https://fonts.googleapis.com">'
-            f"</head><body>"
-            + (sidebar() if hs else "")
-            + f'<div class="main" style="{ml}">'
-            f'<div class="tb"><h2>{title}</h2><div class="tb-r">{nb2}{cb2}</div></div>'
-            f'<div class="ct">{content}</div></div>'
-            + wa_float()
-            + "<script>var cb=document.getElementById('chat-box');if(cb)cb.scrollTop=cb.scrollHeight;</script>"
-            + "</body></html>")
+    ham = ""
+    ov  = ""
+    if hs:
+        ham = ('<button class="hamburger" onclick="toggleSidebar()" aria-label="Menú">'
+               '<span></span><span></span><span></span>'
+               '</button>')
+        ov  = '<div id="sb-overlay" class="sidebar-overlay"></div>'
+
+    return (
+        f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
+        f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        f"<title>{title} &middot; GestorPro</title>"
+        f"<style>{css(pr)}</style>"
+        f"</head><body>"
+        + ov
+        + ham
+        + (sidebar() if hs else "")
+        + f'<div class="main" style="{ml}">'
+        + f'<div class="tb"><h2>{title}</h2><div class="tb-r">{nb2}{cb2}</div></div>'
+        + f'<div class="ct">{content}</div></div>'
+        + wa_float()
+        + "<script>"
+        + "var cb=document.getElementById('chat-box');if(cb)cb.scrollTop=cb.scrollHeight;"
+        + "function toggleSidebar(){"
+        + "  var sb=document.querySelector('.sidebar');"
+        + "  var ov=document.getElementById('sb-overlay');"
+        + "  var hb=document.querySelector('.hamburger');"
+        + "  if(!sb)return;"
+        + "  var open=sb.classList.toggle('mobile-open');"
+        + "  if(ov)ov.classList.toggle('show',open);"
+        + "  if(hb)hb.classList.toggle('open',open);"
+        + "}"
+        + "var ov=document.getElementById('sb-overlay');"
+        + "if(ov)ov.addEventListener('click',toggleSidebar);"
+        + "document.querySelectorAll('.ni').forEach(function(a){"
+        + "  a.addEventListener('click',function(){"
+        + "    if(window.innerWidth<=768){"
+        + "      var sb=document.querySelector('.sidebar');"
+        + "      var ov=document.getElementById('sb-overlay');"
+        + "      var hb=document.querySelector('.hamburger');"
+        + "      if(sb)sb.classList.remove('mobile-open');"
+        + "      if(ov)ov.classList.remove('show');"
+        + "      if(hb)hb.classList.remove('open');"
+        + "    }"
+        + "  });"
+        + "});"
+        + "</script>"
+        + "</body></html>"
+    )
+"""
+
+print("""
 
 def lbg(c="#4f46e5"):
     return f'style="background:linear-gradient(135deg,{c} 0%,#1e1b4b 100%)"'
