@@ -1766,6 +1766,23 @@ def base(title, content, tid=None):
         + "    this.value=this.value.replace(/[^0-9]/g,'');"
         + "  });"
         + "});"
+        + "document.querySelectorAll("
+        + "  'input[name=\"nombre\"],input[name=\"g_nombre\"],input[name=\"ck_nombre\"],"
+        + "   input[name=\"b_nombre\"],input[name=\"nom\"]'"
+        + ").forEach(function(el){"
+        + "  el.addEventListener('input',function(){this.value=this.value.replace(/[^A-Za-z\\u00C0-\\u017E\\s\\-]/g,'');});});"
+
+        + "document.querySelectorAll("
+        + "  'input[type=\"tel\"],input[name=\"telefono\"],input[name=\"tel\"],"
+        + "   input[name=\"whatsapp\"],input[name=\"g_cel\"],input[name=\"ck_cel\"],"
+        + "   input[name=\"b_cel\"],input[name=\"adm_tel\"]'"
+        + ").forEach(function(el){"
+        + "  el.addEventListener('input',function(){this.value=this.value.replace(/[^0-9+]/g,'');});});"
+
+        + "document.querySelectorAll("
+        + "  'input[name=\"nit\"],input[name=\"cuenta\"]'"
+        + ").forEach(function(el){"
+        + "  el.addEventListener('input',function(){this.value=this.value.replace(/[^0-9\\-]/g,'');});});"
         + "document.querySelectorAll('.ni').forEach(function(a){"
         + "  a.addEventListener('click',function(){"
         + "    if(window.innerWidth<=768){"
@@ -1794,66 +1811,60 @@ def lbg(c="#4f46e5"):
 @app.route("/")
 def index():
     tiendas = db_query("SELECT * FROM tiendas WHERE activa=1 ORDER BY nombre", fetchall=True) or []
-
     if not tiendas:
         return ("<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
                 "<title>GestorPro</title></head><body style='background:#07070f;"
-                "display:flex;align-items:center;justify-content:center;min-height:100vh;"
-                "font-family:system-ui'>"
-                "<div style='text-align:center;color:#fff'>"
+                "display:flex;align-items:center;justify-content:center;"
+                "min-height:100vh;font-family:system-ui;color:#fff;flex-direction:column;gap:12px'>"
                 "<div style='font-size:4rem'>🏪</div>"
-                "<h1 style='margin-top:12px'>GestorPro</h1>"
-                "<p style='opacity:.4;margin-top:8px'>Sin tiendas activas.</p>"
-                "</div></body></html>")
+                "<h1 style='font-weight:900'>GestorPro</h1>"
+                "<p style='opacity:.4'>Sin tiendas activas.</p></body></html>")
 
-    ids = tuple(t["id"] for t in tiendas)
+    ids     = tuple(t["id"] for t in tiendas)
     fmt_ids = ",".join(["%s"] * len(ids))
-    prod_counts = db_query(
-        f"SELECT tienda_id,COUNT(*) as c FROM productos WHERE tienda_id IN ({fmt_ids}) AND cantidad>0 GROUP BY tienda_id",
-        ids, fetchall=True) or []
-    prod_map = {r["tienda_id"]: r["c"] for r in prod_counts}
-    ped_counts = db_query(
-        f"SELECT tienda_id,COUNT(*) as c FROM pedidos WHERE tienda_id IN ({fmt_ids}) GROUP BY tienda_id",
-        ids, fetchall=True) or []
-    ped_map = {r["tienda_id"]: r["c"] for r in ped_counts}
-    promo_counts = db_query(
-        f"SELECT tienda_id,COUNT(*) as c FROM promociones WHERE tienda_id IN ({fmt_ids}) AND activa=1 GROUP BY tienda_id",
-        ids, fetchall=True) or []
-    promo_map = {r["tienda_id"]: r["c"] for r in promo_counts}
+    prod_map  = {r["tienda_id"]: r["c"] for r in (db_query(f"SELECT tienda_id,COUNT(*) as c FROM productos WHERE tienda_id IN ({fmt_ids}) AND cantidad>0 GROUP BY tienda_id", ids, fetchall=True) or [])}
+    promo_map = {r["tienda_id"]: r["c"] for r in (db_query(f"SELECT tienda_id,COUNT(*) as c FROM promociones WHERE tienda_id IN ({fmt_ids}) AND activa=1 GROUP BY tienda_id", ids, fetchall=True) or [])}
 
     cards = ""
     for t in tiendas:
-        tid      = t["id"]
-        pc       = t.get("color","#4f46e5")
-        n_prod   = prod_map.get(tid,0)
-        n_promo  = promo_map.get(tid,0)
-        promo_b  = (f'<div style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);'
-                    f'color:#fca5a5;font-size:.64rem;font-weight:800;padding:3px 11px;'
-                    f'border-radius:99px;display:inline-flex;align-items:center;gap:4px">'
-                    f'🎁 {n_promo} promo{"s" if n_promo>1 else ""}</div>' if n_promo else "")
+        tid     = t["id"]
+        pc      = t.get("color","#4f46e5")
+        n_prod  = prod_map.get(tid, 0)
+        n_promo = promo_map.get(tid, 0)
+        badge   = (f'<div style="display:inline-flex;align-items:center;gap:4px;'
+                   f'font-size:.63rem;font-weight:800;padding:3px 10px;border-radius:99px;'
+                   f'background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.35);'
+                   f'color:#fca5a5;margin-top:6px">🎁 {n_promo} promo{"s" if n_promo>1 else ""}</div>'
+                   if n_promo else "")
         cards += (
-            f'<a href="/entrar/{tid}" class="ix-card" '
-            f'style="--pc:{pc}">'
-            # glow
-            f'<div class="ix-glow"></div>'
-            # borde animado
-            f'<div class="ix-border"></div>'
-            # contenido
-            f'<div class="ix-body">'
-            f'<div class="ix-emoji">{t.get("emoji","🏪")}</div>'
-            f'<h2 class="ix-name">{t["nombre"]}</h2>'
-            f'<p class="ix-sub">{t.get("tipo","Tienda")}'
+            f'<a href="/entrar/{tid}" style="--pc:{pc};position:relative;border-radius:22px;'
+            f'overflow:hidden;text-decoration:none;color:#fff;display:flex;flex-direction:column;'
+            f'background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.1);'
+            f'transition:transform .25s,box-shadow .25s;cursor:pointer" '
+            f'onmouseover="this.style.transform=\'translateY(-6px)\';'
+            f'this.style.boxShadow=\'0 24px 64px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.15)\'"  '
+            f'onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\'">'
+            f'<div style="position:absolute;inset:0;border-radius:22px;'
+            f'background:radial-gradient(circle at 50% 0%,{pc} 0%,transparent 65%);'
+            f'opacity:0;transition:opacity .3s;pointer-events:none" '
+            f'onmouseover="this.style.opacity=\'.13\'" onmouseout="this.style.opacity=\'0\'"></div>'
+            f'<div style="position:relative;z-index:1;padding:28px 24px 56px;flex:1;display:flex;flex-direction:column;gap:7px">'
+            f'<div style="font-size:2.8rem;filter:drop-shadow(0 4px 16px rgba(0,0,0,.3));margin-bottom:4px">{t.get("emoji","🏪")}</div>'
+            f'<h2 style="font-size:1.1rem;font-weight:900;letter-spacing:-.02em;margin:0">{t["nombre"]}</h2>'
+            f'<p style="font-size:.77rem;color:rgba(255,255,255,.45);font-weight:500;margin:0">'
+            f'{t.get("tipo","Tienda")}'
             + (f' · {t.get("ciudad","")}' if t.get("ciudad") else "")
             + f'</p>'
-            + (f'<p class="ix-hor">{t.get("horario","")}</p>' if t.get("horario") else "")
-            + f'<div class="ix-stats">'
-            f'<span>📦 {n_prod}</span>'
-            f'<span>·</span>'
-            f'<span>{"🟢 Abierto" if t.get("horario") else "En línea"}</span>'
-            f'</div>'
-            f'{promo_b}'
-            f'</div>'
-            f'<div class="ix-arrow">→</div>'
+            + (f'<p style="font-size:.7rem;color:rgba(255,255,255,.28);margin:0">⏰ {t.get("horario","")}</p>' if t.get("horario") else "")
+            + f'<div style="display:flex;align-items:center;gap:8px;font-size:.72rem;'
+            f'color:rgba(255,255,255,.35);font-weight:600;margin-top:4px">'
+            f'<span>📦 {n_prod}</span><span>·</span>'
+            f'<span style="color:#4ade80">🟢 En línea</span></div>'
+            f'{badge}</div>'
+            f'<div style="position:absolute;bottom:18px;right:18px;z-index:1;'
+            f'width:32px;height:32px;border-radius:50%;'
+            f'background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);'
+            f'display:flex;align-items:center;justify-content:center;font-size:.9rem">→</div>'
             f'</a>'
         )
 
@@ -1861,162 +1872,150 @@ def index():
         "<!DOCTYPE html><html lang='es'><head>"
         "<meta charset='UTF-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>GestorPro · Tiendas</title>"
-        "<link rel='preconnect' href='https://fonts.googleapis.com'>"
-        "<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:"
-        "wght@400;600;700;800;900&display=swap' rel='stylesheet'>"
+        "<title>GestorPro · Bienvenido</title>"
+        "<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap' rel='stylesheet'>"
         "<style>"
         "*{box-sizing:border-box;margin:0;padding:0}"
         "html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;"
         "background:#07070f;color:#fff;min-height:100vh}"
-        # canvas
         "#cvs{position:fixed;inset:0;z-index:0;pointer-events:none}"
-        # aurora
-        ".aurora{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}"
-        ".a1{position:absolute;width:800px;height:800px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(79,70,229,.18) 0%,transparent 70%);"
-        "top:-250px;right:-200px;animation:da 20s ease-in-out infinite alternate}"
-        ".a2{position:absolute;width:600px;height:600px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(16,185,129,.1) 0%,transparent 70%);"
-        "bottom:-150px;left:-150px;animation:db 25s ease-in-out infinite alternate}"
-        "@keyframes da{0%{transform:translate(0,0)}100%{transform:translate(-40px,30px)}}"
-        "@keyframes db{0%{transform:translate(0,0)}100%{transform:translate(50px,-40px)}}"
-        # grid dots
+        ".au{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}"
+        ".a1{position:absolute;width:900px;height:900px;border-radius:50%;"
+        "background:radial-gradient(circle,rgba(79,70,229,.2) 0%,transparent 70%);"
+        "top:-300px;right:-200px;animation:da 18s ease-in-out infinite alternate}"
+        ".a2{position:absolute;width:700px;height:700px;border-radius:50%;"
+        "background:radial-gradient(circle,rgba(16,185,129,.12) 0%,transparent 70%);"
+        "bottom:-200px;left:-150px;animation:db 22s ease-in-out infinite alternate}"
+        "@keyframes da{0%{transform:translate(0,0)}100%{transform:translate(-50px,35px)}}"
+        "@keyframes db{0%{transform:translate(0,0)}100%{transform:translate(45px,-45px)}}"
         ".gd{position:fixed;inset:0;z-index:2;pointer-events:none;"
         "background-image:radial-gradient(rgba(255,255,255,.03) 1px,transparent 1px);"
         "background-size:36px 36px}"
-        # wrap
-        ".wrap{position:relative;z-index:10;max-width:1040px;margin:0 auto;"
-        "padding:48px 24px 60px}"
-        # header
-        ".ix-head{text-align:center;margin-bottom:52px}"
-        ".ix-logo{display:inline-flex;align-items:center;justify-content:center;"
-        "width:72px;height:72px;border-radius:20px;"
-        "background:linear-gradient(135deg,#4f46e5,#818cf8);"
-        "font-size:2rem;margin:0 auto 20px;"
-        "box-shadow:0 0 0 8px rgba(79,70,229,.12),0 0 0 16px rgba(79,70,229,.06),"
-        "0 16px 48px rgba(79,70,229,.4)}"
-        ".ix-title{font-size:clamp(2rem,5vw,3rem);font-weight:900;letter-spacing:-.04em;"
-        "background:linear-gradient(135deg,#fff 40%,rgba(99,102,241,.7));"
-        "-webkit-background-clip:text;-webkit-text-fill-color:transparent;"
-        "background-clip:text;margin-bottom:10px}"
-        ".ix-tagline{font-size:.9rem;color:rgba(255,255,255,.38);font-weight:500}"
-        ".ix-pill{display:inline-flex;align-items:center;gap:6px;margin-top:14px;"
+
+        # ── SPLASH ──────────────────────────────────────────────────
+        "#sp{position:fixed;inset:0;z-index:9999;background:#07070f;"
+        "display:flex;flex-direction:column;align-items:center;"
+        "justify-content:center;transition:opacity .9s ease,visibility .9s ease}"
+        "#sp.out{opacity:0;visibility:hidden;pointer-events:none}"
+        ".spl{width:96px;height:96px;border-radius:26px;"
+        "background:linear-gradient(135deg,#4338ca,#6366f1);"
+        "display:flex;align-items:center;justify-content:center;font-size:2.8rem;"
+        "margin:0 auto 28px;"
+        "box-shadow:0 0 0 12px rgba(79,70,229,.12),0 0 0 24px rgba(79,70,229,.06),"
+        "0 20px 60px rgba(79,70,229,.55);"
+        "animation:pop .6s cubic-bezier(.34,1.56,.64,1) both}"
+        "@keyframes pop{from{opacity:0;transform:scale(.4) rotate(-8deg)}to{opacity:1;transform:scale(1) rotate(0)}}"
+        ".spt1{font-size:clamp(1.8rem,5vw,3rem);font-weight:900;letter-spacing:-.04em;text-align:center;"
+        "background:linear-gradient(135deg,#fff 30%,#818cf8);"
+        "-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;"
+        "opacity:0;animation:up .7s ease .4s both}"
+        ".spt2{font-size:clamp(.85rem,2vw,1rem);color:rgba(255,255,255,.45);"
+        "font-weight:500;margin-top:8px;text-align:center;"
+        "opacity:0;animation:up .7s ease .6s both}"
+        "@keyframes up{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}"
+        ".spbar{width:200px;height:3px;background:rgba(255,255,255,.08);"
+        "border-radius:99px;margin:28px auto 0;overflow:hidden;"
+        "opacity:0;animation:up .5s ease .8s both}"
+        ".spfill{height:100%;width:0;border-radius:99px;"
+        "background:linear-gradient(90deg,#4338ca,#818cf8);"
+        "animation:fill 1.6s cubic-bezier(.4,0,.2,1) .95s both}"
+        "@keyframes fill{from{width:0}to{width:100%}}"
+        ".spdots{display:flex;gap:6px;justify-content:center;margin-top:12px;"
+        "opacity:0;animation:up .5s ease .8s both}"
+        ".sd{width:6px;height:6px;border-radius:50%;background:#6366f1;"
+        "animation:bop 1.1s ease infinite}"
+        ".sd:nth-child(2){animation-delay:.16s;background:#818cf8}"
+        ".sd:nth-child(3){animation-delay:.32s;background:#a5b4fc}"
+        "@keyframes bop{0%,80%,100%{transform:scaleY(.6);opacity:.4}40%{transform:scaleY(1.2);opacity:1}}"
+
+        # ── CONTENIDO ──────────────────────────────────────────────
+        "#main{position:relative;z-index:10;max-width:1040px;margin:0 auto;"
+        "padding:52px 24px 64px;opacity:0;transform:translateY(20px);"
+        "transition:opacity .8s ease,transform .8s ease}"
+        "#main.vis{opacity:1;transform:translateY(0)}"
+        ".hd{text-align:center;margin-bottom:48px}"
+        ".hl{display:inline-flex;align-items:center;justify-content:center;"
+        "width:70px;height:70px;border-radius:20px;"
+        "background:linear-gradient(135deg,#4338ca,#6366f1);font-size:2rem;"
+        "margin:0 auto 18px;"
+        "box-shadow:0 0 0 8px rgba(79,70,229,.1),0 16px 48px rgba(79,70,229,.4)}"
+        ".ht{font-size:clamp(1.8rem,4vw,2.8rem);font-weight:900;letter-spacing:-.04em;"
+        "background:linear-gradient(135deg,#fff 40%,rgba(129,140,248,.8));"
+        "-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:10px}"
+        ".hs{font-size:.88rem;color:rgba(255,255,255,.38);font-weight:500}"
+        ".hp{display:inline-flex;align-items:center;gap:6px;margin-top:14px;"
         "padding:5px 16px;border-radius:99px;"
         "background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);"
         "font-size:.73rem;font-weight:700;color:#4ade80}"
-        ".ix-dot{width:7px;height:7px;border-radius:50%;background:#22c55e;"
-        "animation:bk 2s ease infinite}"
+        ".dot{width:7px;height:7px;border-radius:50%;background:#22c55e;"
+        "box-shadow:0 0 8px #22c55e;animation:bk 2s ease infinite;flex-shrink:0}"
         "@keyframes bk{0%,100%{opacity:1}50%{opacity:.3}}"
-        # grid
-        ".ix-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:20px}"
-        # card
-        ".ix-card{position:relative;border-radius:22px;overflow:hidden;"
-        "text-decoration:none;color:#fff;display:flex;flex-direction:column;"
-        "background:rgba(255,255,255,.04);"
-        "border:1px solid rgba(255,255,255,.09);"
-        "transition:transform .25s,box-shadow .25s;cursor:pointer}"
-        ".ix-card:hover{transform:translateY(-6px);"
-        "box-shadow:0 0 0 1px rgba(255,255,255,.15),0 24px 64px rgba(0,0,0,.5)}"
-        # glow tras card
-        ".ix-glow{position:absolute;inset:0;border-radius:22px;"
-        "background:radial-gradient(circle at 50% 0%,var(--pc) 0%,transparent 65%);"
-        "opacity:0;transition:opacity .3s;pointer-events:none;z-index:0}"
-        ".ix-card:hover .ix-glow{opacity:.12}"
-        # borde animado
-        ".ix-border{position:absolute;inset:-1px;border-radius:23px;"
-        "background:conic-gradient(from var(--ba,0deg),transparent 50%,var(--pc) 65%,transparent 80%);"
-        "z-index:-1;opacity:0;transition:opacity .3s;"
-        "-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);"
-        "-webkit-mask-composite:xor;mask-composite:exclude;padding:1px;"
-        "animation:bspin 6s linear infinite}"
-        ".ix-card:hover .ix-border{opacity:1}"
-        "@keyframes bspin{to{--ba:360deg}}"
-        "@property --ba{syntax:'<angle>';inherits:false;initial-value:0deg}"
-        # body
-        ".ix-body{position:relative;z-index:1;padding:28px 24px 20px;flex:1;display:flex;"
-        "flex-direction:column;gap:8px}"
-        ".ix-emoji{font-size:2.8rem;margin-bottom:4px;"
-        "filter:drop-shadow(0 4px 16px rgba(0,0,0,.3))}"
-        ".ix-name{font-size:1.1rem;font-weight:900;letter-spacing:-.02em}"
-        ".ix-sub{font-size:.77rem;color:rgba(255,255,255,.45);font-weight:500}"
-        ".ix-hor{font-size:.7rem;color:rgba(255,255,255,.28)}"
-        ".ix-stats{display:flex;align-items:center;gap:8px;"
-        "font-size:.72rem;color:rgba(255,255,255,.35);font-weight:600;margin-top:4px}"
-        # arrow
-        ".ix-arrow{position:absolute;bottom:22px;right:22px;z-index:1;"
-        "width:32px;height:32px;border-radius:50%;"
-        "background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);"
-        "display:flex;align-items:center;justify-content:center;"
-        "font-size:.9rem;transition:all .2s}"
-        ".ix-card:hover .ix-arrow{background:var(--pc);border-color:var(--pc);"
-        "transform:translateX(3px)}"
-        # footer
-        ".ix-foot{text-align:center;margin-top:44px}"
-        ".ix-super{font-size:.68rem;color:rgba(255,255,255,.1);text-decoration:none;transition:.2s}"
-        ".ix-super:hover{color:rgba(255,255,255,.35)}"
-        # responsive
-        "@media(max-width:480px){"
-        ".wrap{padding:32px 16px 48px}"
-        ".ix-grid{grid-template-columns:1fr;gap:14px}"
-        ".ix-head{margin-bottom:36px}}"
+        ".gr{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:20px}"
+        ".ft{text-align:center;margin-top:44px}"
+        ".fta{font-size:.68rem;color:rgba(255,255,255,.08);text-decoration:none;transition:.2s}"
+        ".fta:hover{color:rgba(255,255,255,.35)}"
+        "@media(max-width:480px){#main{padding:32px 16px 48px}"
+        ".gr{grid-template-columns:1fr;gap:14px}.hd{margin-bottom:32px}}"
         "</style></head><body>"
 
+        # Fondo
         "<canvas id='cvs'></canvas>"
-        "<div class='aurora'><div class='a1'></div><div class='a2'></div></div>"
+        "<div class='au'><div class='a1'></div><div class='a2'></div></div>"
         "<div class='gd'></div>"
 
-        "<div class='wrap'>"
-        "<div class='ix-head'>"
-        "<div class='ix-logo'>🏪</div>"
-        "<h1 class='ix-title'>GestorPro</h1>"
-        "<p class='ix-tagline'>Sistema de Gestión Multi-Tienda · Colombia 🇨🇴</p>"
-        "<span class='ix-pill'>"
-        "<span class='ix-dot'></span>"
+        # ── SPLASH ─────────────────────────────────────────────────
+        "<div id='sp'>"
+        "<div class='spl'>🏪</div>"
+        "<div class='spt1'>Bienvenidos a GestorPro</div>"
+        "<div class='spt2'>Tiendas · Panaderías · Colombia 🇨🇴</div>"
+        "<div class='spbar'><div class='spfill'></div></div>"
+        "<div class='spdots'><div class='sd'></div><div class='sd'></div><div class='sd'></div></div>"
+        "</div>"
+
+        # ── TIENDAS ────────────────────────────────────────────────
+        "<div id='main'>"
+        "<div class='hd'>"
+        "<div class='hl'>🏪</div>"
+        "<h1 class='ht'>GestorPro</h1>"
+        "<p class='hs'>Sistema de Gestión Multi-Tienda · Colombia 🇨🇴</p>"
+        "<span class='hp'>"
+        "<span class='dot'></span>"
         f"{len(tiendas)} tienda{'s' if len(tiendas)!=1 else ''} disponible{'s' if len(tiendas)!=1 else ''}"
-        "</span>"
-        "</div>"
-
-        f"<div class='ix-grid'>{cards}</div>"
-
-        "<div class='ix-foot'>"
-        "<a href='/super' class='ix-super'>⚙ Acceso sistema</a>"
-        "</div>"
+        "</span></div>"
+        f"<div class='gr'>{cards}</div>"
+        "<div class='ft'><a href='/super' class='fta'>⚙ Acceso sistema</a></div>"
         "</div>"
 
         "<script>"
         # Partículas
-        "(function(){"
-        "var c=document.getElementById('cvs');"
-        "var ctx=c.getContext('2d');"
-        "var W,H,pts=[];"
-        "function resize(){W=c.width=window.innerWidth;H=c.height=window.innerHeight;}"
-        "function mkPts(){"
-        "pts=[];var n=Math.floor(W*H/18000);"
-        "for(var i=0;i<n;i++){"
+        "(function(){var c=document.getElementById('cvs'),ctx=c.getContext('2d'),W,H,pts=[];"
+        "function sz(){W=c.width=innerWidth;H=c.height=innerHeight;}"
+        "function mk(){pts=[];for(var i=0,n=Math.floor(W*H/18000);i<n;i++)"
         "pts.push({x:Math.random()*W,y:Math.random()*H,"
         "vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25,"
-        "r:Math.random()*1.2+.3,a:Math.random()*.35+.05});}}"
-        "function draw(){"
-        "ctx.clearRect(0,0,W,H);"
+        "r:Math.random()*1.1+.3,a:Math.random()*.28+.04});}"
+        "function dr(){ctx.clearRect(0,0,W,H);"
         "pts.forEach(function(p){"
         "p.x+=p.vx;p.y+=p.vy;"
         "if(p.x<0)p.x=W;if(p.x>W)p.x=0;"
         "if(p.y<0)p.y=H;if(p.y>H)p.y=0;"
-        "ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);"
+        "ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.28);"
         "ctx.fillStyle='rgba(99,102,241,'+p.a+')';ctx.fill();});"
-        "requestAnimationFrame(draw);}"
-        "resize();mkPts();draw();"
-        "window.addEventListener('resize',function(){resize();mkPts();});"
-        "})();"
-        # Parallax suave en cards al mover mouse
+        "requestAnimationFrame(dr);}"
+        "sz();mk();dr();"
+        "window.addEventListener('resize',function(){sz();mk();});})();"
+
+        # Splash → mostrar contenido tras 2.8s
+        "setTimeout(function(){"
+        "  document.getElementById('sp').classList.add('out');"
+        "  document.getElementById('main').classList.add('vis');"
+        "},2800);"
+
+        # Parallax suave
         "document.addEventListener('mousemove',function(e){"
-        "var cx=e.clientX/window.innerWidth-.5;"
-        "var cy=e.clientY/window.innerHeight-.5;"
-        "document.querySelector('.a1').style.transform="
-        "'translate('+(-cx*25)+'px,'+(cy*-20)+'px)';"
-        "document.querySelector('.a2').style.transform="
-        "'translate('+(cx*20)+'px,'+(cy*25)+'px)';});"
+        "var cx=e.clientX/innerWidth-.5,cy=e.clientY/innerHeight-.5;"
+        "document.querySelector('.a1').style.transform='translate('+(-cx*25)+'px,'+(cy*-20)+'px)';"
+        "document.querySelector('.a2').style.transform='translate('+(cx*20)+'px,'+(cy*25)+'px)';});"
         "</script></body></html>"
     )
 
@@ -2908,16 +2907,116 @@ def super_login():
         if usr and check_password_hash(usr["password"],p):
             session.clear(); session["superadmin"]=True; session["user"]=u; return redirect("/super/panel")
         error='<div class="al a-d">⚠️ Credenciales incorrectas.</div>'
-    return (f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            f"<title>Super Admin &middot; GestorPro</title><style>{css_cached()}</style></head><body>"
-            f'<div class="sa-page"><div class="lc">'
-            f'<div class="llo"><span class="li2">⚙️</span><h1>Super Admin</h1><p>GestorPro &middot; Panel Global del Sistema</p></div>'
-            f'{error}<form method="post" style="display:flex;flex-direction:column;gap:12px">'
-            f'<div class="fg"><label>Usuario</label><input type="text" name="user" placeholder="superadmin" required autofocus></div>'
-            f'<div class="fg"><label>Contraseña</label><input type="password" name="pass" required></div>'
-            f'<button class="btn bp blg bbl">🔐 Acceder al sistema</button></form>'
-            f'<a href="/" style="display:block;text-align:center;margin-top:14px;font-size:.72rem;color:var(--mt)">&larr; Volver al inicio</a>'
-            f'</div></div></body></html>')
+    return (
+        "<!DOCTYPE html><html lang='es'><head>"
+        "<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>Super Admin · GestorPro</title>"
+        "<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap' rel='stylesheet'>"
+        "<style>"
+        "*{box-sizing:border-box;margin:0;padding:0}"
+        "html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:#07070f;color:#fff;min-height:100vh;overflow:hidden}"
+        "#cvs{position:fixed;inset:0;z-index:0;pointer-events:none}"
+        ".aurora{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}"
+        ".a1{position:absolute;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,rgba(79,70,229,.2) 0%,transparent 70%);top:-200px;right:-150px;animation:da 18s ease-in-out infinite alternate}"
+        ".a2{position:absolute;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(239,68,68,.1) 0%,transparent 70%);bottom:-150px;left:-100px;animation:db 22s ease-in-out infinite alternate}"
+        "@keyframes da{0%{transform:translate(0,0)}100%{transform:translate(-40px,30px)}}"
+        "@keyframes db{0%{transform:translate(0,0)}100%{transform:translate(40px,-40px)}}"
+        ".gd{position:fixed;inset:0;z-index:2;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,.03) 1px,transparent 1px);background-size:36px 36px}"
+        ".stage{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;padding:24px}"
+        ".card{position:relative;width:100%;max-width:420px;"
+        "background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:28px;"
+        "padding:44px 36px 38px;backdrop-filter:blur(32px);"
+        "box-shadow:0 0 0 1px rgba(255,255,255,.06) inset,0 32px 80px rgba(79,70,229,.2),0 0 120px rgba(0,0,0,.6);"
+        "animation:cardIn .7s cubic-bezier(.22,1,.36,1) both}"
+        "@keyframes cardIn{from{opacity:0;transform:translateY(28px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}"
+        # borde giratorio
+        ".card::before{content:'';position:absolute;inset:-1px;border-radius:29px;"
+        "background:conic-gradient(from var(--a,0deg),transparent 40%,#4f46e588 55%,transparent 70%);"
+        "z-index:-1;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);"
+        "-webkit-mask-composite:xor;mask-composite:exclude;padding:1px;animation:spin 8s linear infinite}"
+        "@keyframes spin{to{--a:360deg}}"
+        "@property --a{syntax:'<angle>';inherits:false;initial-value:0deg}"
+        ".head{text-align:center;margin-bottom:32px}"
+        ".logo{width:80px;height:80px;border-radius:22px;"
+        "background:linear-gradient(135deg,#1e1b4b,#312e81);"
+        "border:1.5px solid rgba(99,102,241,.4);"
+        "display:flex;align-items:center;justify-content:center;font-size:2.2rem;"
+        "margin:0 auto 20px;box-shadow:0 0 0 8px rgba(79,70,229,.1),0 12px 40px rgba(79,70,229,.4);"
+        "animation:pulse-glow 3s ease infinite}"
+        "@keyframes pulse-glow{0%,100%{box-shadow:0 0 0 8px rgba(79,70,229,.1),0 12px 40px rgba(79,70,229,.4)}"
+        "50%{box-shadow:0 0 0 12px rgba(79,70,229,.15),0 12px 50px rgba(79,70,229,.6)}}"
+        ".head h1{font-size:1.4rem;font-weight:900;letter-spacing:-.03em;"
+        "background:linear-gradient(135deg,#fff 40%,#818cf8);"
+        "-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:5px}"
+        ".head p{font-size:.76rem;color:rgba(255,255,255,.35);font-weight:500}"
+        ".warn-chip{display:inline-flex;align-items:center;gap:6px;margin-top:10px;"
+        "padding:4px 14px;border-radius:99px;background:rgba(239,68,68,.1);"
+        "border:1px solid rgba(239,68,68,.25);font-size:.68rem;font-weight:700;color:#fca5a5}"
+        ".fg2{display:flex;flex-direction:column;gap:14px;margin-bottom:20px}"
+        ".lbl{font-size:.64rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:rgba(255,255,255,.35);margin-bottom:6px}"
+        ".iw{position:relative}"
+        ".iw .ico{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:.9rem;pointer-events:none}"
+        ".inp{width:100%;padding:12px 16px 12px 40px;border-radius:12px;"
+        "border:1.5px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);"
+        "color:#fff;font-family:inherit;font-size:.9rem;outline:none;transition:.2s}"
+        ".inp:focus{border-color:#4f46e5;background:rgba(255,255,255,.08);box-shadow:0 0 0 3px rgba(79,70,229,.2)}"
+        ".inp::placeholder{color:rgba(255,255,255,.2)}"
+        ".pw-wrap{position:relative}.pw-wrap .inp{padding-right:44px}"
+        ".pw-eye{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:.9rem;color:rgba(255,255,255,.3);transition:.15s}"
+        ".pw-eye:hover{color:rgba(255,255,255,.6)}"
+        ".err{padding:10px 14px;border-radius:10px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#fca5a5;font-size:.8rem;margin-bottom:16px}"
+        ".btn-sa{width:100%;padding:14px;border-radius:13px;border:none;"
+        "background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;"
+        "font-family:inherit;font-size:.95rem;font-weight:800;cursor:pointer;"
+        "box-shadow:0 4px 20px rgba(79,70,229,.4);transition:all .2s}"
+        ".btn-sa:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(79,70,229,.55)}"
+        ".back{display:block;text-align:center;margin-top:20px;font-size:.72rem;"
+        "color:rgba(255,255,255,.25);text-decoration:none;transition:.2s}"
+        ".back:hover{color:rgba(255,255,255,.5)}"
+        "@media(max-width:480px){.card{padding:36px 22px 28px}}"
+        "</style></head><body>"
+        "<canvas id='cvs'></canvas>"
+        "<div class='aurora'><div class='a1'></div><div class='a2'></div></div>"
+        "<div class='gd'></div>"
+        "<div class='stage'><div class='card'>"
+        "<div class='head'>"
+        "<div class='logo'>⚙️</div>"
+        "<h1>Super Admin</h1>"
+        "<p>GestorPro · Panel Global del Sistema</p>"
+        "<span class='warn-chip'>🔒 Acceso restringido</span>"
+        "</div>"
+        + (f'<div class="err">{error}</div>' if error else "")
+        + "<form method='post' style='display:flex;flex-direction:column'>"
+        "<div class='fg2'>"
+        "<div><div class='lbl'>Usuario</div>"
+        "<div class='iw'><span class='ico'>👤</span>"
+        "<input class='inp' type='text' name='user' placeholder='superadmin' required autofocus></div></div>"
+        "<div><div class='lbl'>Contraseña</div>"
+        "<div class='pw-wrap'><span class='ico' style='position:absolute;left:13px;top:50%;transform:translateY(-50%)'>🔒</span>"
+        "<input class='inp' type='password' id='spa-pw' name='pass' placeholder='••••••••' required style='padding-left:40px'>"
+        "<button type='button' class='pw-eye' onclick=\"var i=document.getElementById('spa-pw');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='text'?'🙈':'👁'\">👁</button>"
+        "</div></div>"
+        "</div>"
+        "<button class='btn-sa' type='submit'>🔐 Acceder al sistema →</button>"
+        "</form>"
+        "<a href='/' class='back'>← Volver al inicio</a>"
+        "</div></div>"
+        "<script>"
+        "(function(){var c=document.getElementById('cvs'),ctx=c.getContext('2d'),W,H,pts=[];"
+        "function resize(){W=c.width=innerWidth;H=c.height=innerHeight;}"
+        "function mkPts(){pts=[];var n=Math.floor(W*H/18000);"
+        "for(var i=0;i<n;i++)pts.push({x:Math.random()*W,y:Math.random()*H,"
+        "vx:(Math.random()-.5)*.2,vy:(Math.random()-.5)*.2,r:Math.random()*.9+.3,a:Math.random()*.25+.05});}"
+        "function draw(){ctx.clearRect(0,0,W,H);"
+        "pts.forEach(function(p){p.x+=p.vx;p.y+=p.vy;"
+        "if(p.x<0)p.x=W;if(p.x>W)p.x=0;if(p.y<0)p.y=H;if(p.y>H)p.y=0;"
+        "ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);"
+        "ctx.fillStyle='rgba(79,70,229,'+p.a+')';ctx.fill();});"
+        "requestAnimationFrame(draw);}"
+        "resize();mkPts();draw();"
+        "window.addEventListener('resize',function(){resize();mkPts();});})();"
+        "</script></body></html>"
+    )
 
 @app.route("/super/panel")
 def super_panel():
@@ -3159,34 +3258,95 @@ def admin():
     nb2=f' <span class="nb">{nl}</span>' if nl else ""
     pend_pago=f'<div class="al a-w">💳 {pendientes_nequi} pedido(s) con Nequi/Daviplata pendientes de confirmar comprobante. <a href="/admin_pedidos">Ver</a></div>' if pendientes_nequi>0 else ""
     return base(f'📊 Dashboard — {t.get("nombre","")}',(
-        pend_pago+
-        f'<div class="kg">'
-        f'<div class="kc k-bl"><div class="ki">📦</div><div class="kl">Productos</div><div class="kv">{np}</div></div>'
-        f'<div class="kc k-gr"><div class="ki">💵</div><div class="kl">Ingresos</div><div class="kv" style="font-size:1.05rem">{fmt(ing)}</div></div>'
-        f'<div class="kc k-rd"><div class="ki">💸</div><div class="kl">Egresos</div><div class="kv" style="font-size:1.05rem">{fmt(egr)}</div></div>'
-        f'<div class="kc k-am"><div class="ki">🧾</div><div class="kl">Pedidos</div><div class="kv">{nped}</div></div>'
-        f'<div class="kc k-rd"><div class="ki">⚠️</div><div class="kl">Stock Bajo</div><div class="kv">{len(bajos)}</div></div>'
-        f'<div class="kc k-pu"><div class="ki">🎁</div><div class="kl">Promociones</div><div class="kv">{npro}</div></div>'
-        f'<div class="kc k-bl"><div class="ki">💰</div><div class="kl">Saldo Neto</div><div class="kv" style="font-size:1.05rem">{fmt(ing-egr)}</div></div>'
-        f'</div><div class="g2">'
+        pend_pago +
+        # ── KPIs glassmorphism ───────────────────────────────────────
+        f'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-bottom:24px">'
+
+        f'<div style="background:linear-gradient(135deg,rgba(59,130,246,.15),rgba(59,130,246,.05));'
+        f'border:1px solid rgba(59,130,246,.25);border-radius:18px;padding:20px 18px;'
+        f'backdrop-filter:blur(12px);position:relative;overflow:hidden">'
+        f'<div style="font-size:1.6rem;margin-bottom:6px">📦</div>'
+        f'<div style="font-size:.72rem;font-weight:700;color:var(--mt);text-transform:uppercase;letter-spacing:.07em">Productos</div>'
+        f'<div style="font-size:2rem;font-weight:900;color:#3b82f6;margin-top:4px;line-height:1">{np}</div>'
+        f'<div style="position:absolute;right:-10px;bottom:-10px;font-size:4rem;opacity:.06">📦</div></div>'
+
+        f'<div style="background:linear-gradient(135deg,rgba(16,185,129,.15),rgba(16,185,129,.05));'
+        f'border:1px solid rgba(16,185,129,.25);border-radius:18px;padding:20px 18px;'
+        f'backdrop-filter:blur(12px);position:relative;overflow:hidden">'
+        f'<div style="font-size:1.6rem;margin-bottom:6px">💵</div>'
+        f'<div style="font-size:.72rem;font-weight:700;color:var(--mt);text-transform:uppercase;letter-spacing:.07em">Ingresos</div>'
+        f'<div style="font-size:1.35rem;font-weight:900;color:#10b981;margin-top:4px;line-height:1">{fmt(ing)}</div>'
+        f'<div style="position:absolute;right:-10px;bottom:-10px;font-size:4rem;opacity:.06">💵</div></div>'
+
+        f'<div style="background:linear-gradient(135deg,rgba(239,68,68,.15),rgba(239,68,68,.05));'
+        f'border:1px solid rgba(239,68,68,.25);border-radius:18px;padding:20px 18px;'
+        f'backdrop-filter:blur(12px);position:relative;overflow:hidden">'
+        f'<div style="font-size:1.6rem;margin-bottom:6px">💸</div>'
+        f'<div style="font-size:.72rem;font-weight:700;color:var(--mt);text-transform:uppercase;letter-spacing:.07em">Egresos</div>'
+        f'<div style="font-size:1.35rem;font-weight:900;color:#ef4444;margin-top:4px;line-height:1">{fmt(egr)}</div>'
+        f'<div style="position:absolute;right:-10px;bottom:-10px;font-size:4rem;opacity:.06">💸</div></div>'
+
+        f'<div style="background:linear-gradient(135deg,rgba(245,158,11,.15),rgba(245,158,11,.05));'
+        f'border:1px solid rgba(245,158,11,.25);border-radius:18px;padding:20px 18px;'
+        f'backdrop-filter:blur(12px);position:relative;overflow:hidden">'
+        f'<div style="font-size:1.6rem;margin-bottom:6px">🧾</div>'
+        f'<div style="font-size:.72rem;font-weight:700;color:var(--mt);text-transform:uppercase;letter-spacing:.07em">Pedidos</div>'
+        f'<div style="font-size:2rem;font-weight:900;color:#f59e0b;margin-top:4px;line-height:1">{nped}</div>'
+        f'<div style="position:absolute;right:-10px;bottom:-10px;font-size:4rem;opacity:.06">🧾</div></div>'
+
+        f'<div style="background:linear-gradient(135deg,rgba(239,68,68,.12),rgba(239,68,68,.04));'
+        f'border:1px solid rgba(239,68,68,.2);border-radius:18px;padding:20px 18px;'
+        f'backdrop-filter:blur(12px);position:relative;overflow:hidden">'
+        f'<div style="font-size:1.6rem;margin-bottom:6px">⚠️</div>'
+        f'<div style="font-size:.72rem;font-weight:700;color:var(--mt);text-transform:uppercase;letter-spacing:.07em">Stock Bajo</div>'
+        f'<div style="font-size:2rem;font-weight:900;color:#ef4444;margin-top:4px;line-height:1">{len(bajos)}</div>'
+        f'<div style="position:absolute;right:-10px;bottom:-10px;font-size:4rem;opacity:.06">⚠️</div></div>'
+
+        f'<div style="background:linear-gradient(135deg,rgba(79,70,229,.15),rgba(79,70,229,.05));'
+        f'border:1px solid rgba(79,70,229,.25);border-radius:18px;padding:20px 18px;'
+        f'backdrop-filter:blur(12px);position:relative;overflow:hidden">'
+        f'<div style="font-size:1.6rem;margin-bottom:6px">💰</div>'
+        f'<div style="font-size:.72rem;font-weight:700;color:var(--mt);text-transform:uppercase;letter-spacing:.07em">Saldo Neto</div>'
+        f'<div style="font-size:1.25rem;font-weight:900;color:var(--pr);margin-top:4px;line-height:1">{fmt(ing-egr)}</div>'
+        f'<div style="position:absolute;right:-10px;bottom:-10px;font-size:4rem;opacity:.06">💰</div></div>'
+
+        f'<div style="background:linear-gradient(135deg,rgba(139,92,246,.15),rgba(139,92,246,.05));'
+        f'border:1px solid rgba(139,92,246,.25);border-radius:18px;padding:20px 18px;'
+        f'backdrop-filter:blur(12px);position:relative;overflow:hidden">'
+        f'<div style="font-size:1.6rem;margin-bottom:6px">🎁</div>'
+        f'<div style="font-size:.72rem;font-weight:700;color:var(--mt);text-transform:uppercase;letter-spacing:.07em">Promociones</div>'
+        f'<div style="font-size:2rem;font-weight:900;color:#8b5cf6;margin-top:4px;line-height:1">{npro}</div>'
+        f'<div style="position:absolute;right:-10px;bottom:-10px;font-size:4rem;opacity:.06">🎁</div></div>'
+        f'</div>'
+
+        # ── Alertas + Últimos pedidos ────────────────────────────────
+        f'<div class="g2">'
         f'<div class="sec"><div class="sh"><h3>🔔 Alertas</h3><a href="/notificaciones" class="btn bg bsm">Ver{nb2}</a></div><div class="sb2">{al}</div></div>'
         f'<div class="sec"><div class="sh"><h3>🧾 Últimos Pedidos</h3><a href="/admin_pedidos" class="btn bg bsm">Ver todos</a></div>'
         f'<div class="sb2"><div class="tw"><table><thead><tr><th>Código</th><th>Producto</th><th>Cliente</th><th>Total</th><th>Estado</th></tr></thead>'
         f'<tbody>{"<tr><td colspan=5 class=tmuted>Sin pedidos</td></tr>" if not filas else filas}</tbody></table></div></div></div>'
-        f'<div class="sec"><div class="sh"><h3>⚡ Accesos Rápidos</h3></div>'
-        f'<div class="sb2" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">'
-        f'<a href="/inventario" class="btn bp blg">📦 Inventario</a>'
-        f'<a href="/admin_pedidos" class="btn bw2 blg">🧾 Pedidos</a>'
-        f'<a href="/proveedores" class="btn bs blg">🚚 Proveedores</a>'
-        f'<a href="/promociones" class="btn bg blg">🎁 Promociones</a>'
-        f'<a href="/admin_devs" class="btn bpv blg">🔄 Devoluciones</a>'
-        f'<a href="/produccion" class="btn bg blg">🍞 Producción</a>'
-        f'<a href="/caja" class="btn bg blg">💰 Caja</a>'
-        f'<a href="/reportes" class="btn bg blg">📈 Reportes</a>'
-        f'<a href="/usuarios" class="btn bg blg">👥 Usuarios</a>'
-        f'<a href="/domiciliarios" class="btn bdm blg">🏍️ Domiciliarios</a>'
-        f'<a href="/config" class="btn bg blg">⚙️ Config</a>'
-        f'</div></div>'))
+
+        # ── Accesos rápidos tipo grid de apps ────────────────────────
+        f'<div class="sec" style="margin-top:6px"><div class="sh"><h3>⚡ Accesos Rápidos</h3></div>'
+        f'<div class="sb2">'
+        f'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px">'
+        + "".join(
+            f'<a href="{url}" style="display:flex;flex-direction:column;align-items:center;gap:8px;'
+            f'padding:18px 10px;border-radius:16px;text-decoration:none;color:var(--tx);font-weight:700;font-size:.78rem;'
+            f'background:rgba(255,255,255,.03);border:1px solid var(--bd);transition:all .18s;text-align:center" '
+            f'onmouseover="this.style.background=\'rgba(79,70,229,.08)\';this.style.borderColor=\'rgba(79,70,229,.3)\';this.style.transform=\'translateY(-3px)\'" '
+            f'onmouseout="this.style.background=\'rgba(255,255,255,.03)\';this.style.borderColor=\'var(--bd)\';this.style.transform=\'\'">'
+            f'<span style="font-size:1.6rem">{ico}</span><span>{lbl}</span></a>'
+            for ico,lbl,url in [
+                ("📦","Inventario","/inventario"),("🧾","Pedidos","/admin_pedidos"),
+                ("🚚","Proveedores","/proveedores"),("🎁","Promociones","/promociones"),
+                ("🔄","Devoluciones","/admin_devs"),("🍞","Producción","/produccion"),
+                ("💰","Caja","/caja"),("📈","Reportes","/reportes"),
+                ("👥","Usuarios","/usuarios"),("🏍️","Domiciliarios","/domiciliarios"),
+                ("⚙️","Config","/config"),("🤖","Bot IA","/bot"),
+            ])
+        + f'</div></div></div>'
+    ))
 
 # ================================================================
 #  EMPLEADO DASHBOARD
