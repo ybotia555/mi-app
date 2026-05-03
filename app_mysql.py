@@ -152,17 +152,17 @@ def db_multi(queries_params):
     finally:
         conn.close()
     return results
-
 # ================================================================
-#  init_db — CREA BD Y TABLAS AUTOMÁTICAMENTE
+#  init_db — CREA BD Y TABLAS 
 # ================================================================
 def init_db():
-    # crear todas las tablas
     conn = get_db()
     try:
         with conn.cursor() as cur:
 
-             # Tabla de chat en vivo persistente
+            # =============================
+            # TABLA chat_live
+            # =============================
             cur.execute("""CREATE TABLE IF NOT EXISTS chat_live(
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 tienda_id VARCHAR(100) NOT NULL,
@@ -180,7 +180,64 @@ def init_db():
                 INDEX idx_chat_act(ultima_actividad)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
 
-            # Tabla de sesiones de chat (para control de inactividad)
+            # =============================
+            # 🔧 ALTER TABLE (PARCHE)
+            # =============================
+            # ── devoluciones
+            try:
+                cur.execute("ALTER TABLE devoluciones ADD COLUMN razon VARCHAR(100) DEFAULT 'Otro'")
+            except: pass
+
+            try:
+                cur.execute("ALTER TABLE devoluciones ADD COLUMN tipo_dev VARCHAR(30) DEFAULT 'reembolso'")
+            except: pass
+
+            try:
+                cur.execute("ALTER TABLE devoluciones MODIFY COLUMN estado VARCHAR(50) DEFAULT 'Solicitada'")
+            except: pass
+
+            try:
+                cur.execute("ALTER TABLE devoluciones ADD COLUMN comprobante_dev LONGBLOB")
+            except: pass
+
+            try:
+                cur.execute("ALTER TABLE devoluciones ADD COLUMN mime_dev VARCHAR(100) DEFAULT 'image/jpeg'")
+            except: pass
+
+            # ── productos
+            try:
+                cur.execute("ALTER TABLE productos ADD COLUMN subcategoria VARCHAR(100) DEFAULT ''")
+            except: pass
+
+            try:
+                cur.execute("ALTER TABLE productos ADD COLUMN proveedor_nombre VARCHAR(200) DEFAULT ''")
+            except: pass
+
+            try:
+                cur.execute("ALTER TABLE productos ADD COLUMN cantidad_vendida INT DEFAULT 0")
+            except: pass
+
+            try:
+                cur.execute("ALTER TABLE tiendas ADD COLUMN en_mantenimiento TINYINT(1) DEFAULT 0")
+            except: pass
+            try:
+                cur.execute("ALTER TABLE tiendas ADD COLUMN msg_mantenimiento VARCHAR(300) DEFAULT 'Tienda temporalmente en mantenimiento. Vuelve pronto.'")
+            except: pass
+
+            # ── superusers
+            try:
+                cur.execute("ALTER TABLE superusers ADD COLUMN telefono VARCHAR(30) DEFAULT ''")
+            except: pass
+            # ── Columna imagen BLOB para productos ─────────────────────────────
+            try:
+                cur.execute("ALTER TABLE productos ADD COLUMN img_blob LONGBLOB")
+            except: pass
+            try:
+                cur.execute("ALTER TABLE productos ADD COLUMN img_mime VARCHAR(50) DEFAULT 'image/jpeg'")
+            except: pass
+            # =============================
+            # TABLA chat_sesiones
+            # =============================
             cur.execute("""CREATE TABLE IF NOT EXISTS chat_sesiones(
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 tienda_id VARCHAR(100) NOT NULL,
@@ -196,7 +253,9 @@ def init_db():
                 INDEX idx_cs_act(ultima_actividad)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
 
-            # Tabla de aprendizaje del bot (conversaciones para mejorar)
+            # =============================
+            # TABLA bot_aprendizaje
+            # =============================
             cur.execute("""CREATE TABLE IF NOT EXISTS bot_aprendizaje(
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 tienda_id VARCHAR(100) NOT NULL,
@@ -208,6 +267,9 @@ def init_db():
                 INDEX idx_ba_tid(tienda_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
 
+            # =============================
+            # TABLA superusers
+            # =============================
             cur.execute("""CREATE TABLE IF NOT EXISTS superusers(
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 user VARCHAR(100) UNIQUE NOT NULL,
@@ -215,7 +277,6 @@ def init_db():
                 password VARCHAR(512) NOT NULL,
                 email VARCHAR(200)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
-
 
     finally:
         conn.close()
@@ -671,6 +732,7 @@ a{text-decoration:none;color:inherit}
 .ur{font-size:.62rem;color:rgba(255,255,255,.32);margin-top:1px}
 
 /* ══ MAIN ══════════════════════════════════════════════════════ */
+
 .main{margin-left:252px;min-height:100vh;display:flex;flex-direction:column}
 .tb{background:rgba(255,255,255,.96);backdrop-filter:blur(16px);border-bottom:1px solid var(--bd);
   padding:14px 28px;display:flex;align-items:center;justify-content:space-between;
@@ -1586,7 +1648,7 @@ def sidebar():
             ("🔄","Devoluciones","dev","/admin_devs"),
             ("📎","Comprobantes","comp","/comprobantes_pedido"),
             ("💬","Chat en Vivo","chat","/agente_chat",chat_nb),
-            ("🤖","Asistente","bot","/bot"),
+            ("🤖","Asistente","chatbot","/bot"),
         ],
         "domiciliario": [
             ("🏍️","Mis Entregas","domi","/domi"),
@@ -1603,10 +1665,9 @@ def sidebar():
         "cliente": [
             ("🏠","Tienda","shop","/tienda"),
             ("🛒","Carrito","cart","/carrito"),
-            ("📦","Mis pedidos","ped","/mis_pedidos"),
-            ("🔍","Buscar pedido","bped","/buscar_pedido"),
+            ("🔍","Consultar Pedido","bped","/buscar_pedido"),
             ("🔄","Devoluciones","dev","/mis_devs"),
-            ("🤖","Asistente IA","bot","/bot"),
+            ("🤖","Asistente chatbot","bot","/bot"),
             *([("💬","Chat con Agente","chat","/chat_cliente")] if hay_agente else []),
             ("👤","Mi Perfil","perf","/perfil"),
         ],
@@ -1742,29 +1803,39 @@ def base(title, content, tid=None):
         + "}"
         + "var ov=document.getElementById('sb-overlay');"
         + "if(ov)ov.addEventListener('click',toggleSidebar);"
-        # ── Validaciones globales oninput ─────────────────────
+        # ── Validaciones globales de inputs ──────────────────────────
         + "document.querySelectorAll("
-        + "  'input[name*=\"nombre\"],input[name*=\"nom\"],"
-        + "   input[name*=\"ck_nombre\"],input[id*=\"nombre\"]'"
+        + "  'input[name=\"nombre\"],input[name=\"nom\"],"
+        + "   input[name=\"ck_nombre\"],input[id=\"nombre\"],"
+        + "   input[name=\"adm_user\"],input[name=\"ciudad\"]'"
         + ").forEach(function(el){"
         + "  el.addEventListener('input',function(){"
         + "    this.value=this.value.replace(/[^A-Za-z\\u00C0-\\u017E\\s\\-]/g,'');"
         + "  });"
         + "});"
+        # Teléfonos — solo números
         + "document.querySelectorAll("
-        + "  'input[type=\"tel\"],input[name*=\"cel\"],input[name*=\"celular\"],"
-        + "   input[name*=\"telefono\"],input[name*=\"phone\"],input[name*=\"tel_\"]'"
+        + "  'input[type=\"tel\"],input[name=\"celular\"],"
+        + "   input[name=\"telefono\"],input[name=\"b_cel\"]'"
         + ").forEach(function(el){"
         + "  el.addEventListener('input',function(){"
         + "    this.value=this.value.replace(/[^0-9]/g,'');"
         + "  });"
         + "});"
+        # NIT y cédula — números y guion
         + "document.querySelectorAll("
-        + "  'input[name*=\"nit\"],input[name*=\"cc\"],input[name*=\"cedula\"]'"
+        + "  'input[name=\"nit\"],input[name=\"cedula\"],input[name=\"cc_num\"]'"
         + ").forEach(function(el){"
         + "  el.addEventListener('input',function(){"
-        + "    this.value=this.value.replace(/[^0-9]/g,'');"
+        + "    this.value=this.value.replace(/[^0-9\\-]/g,'');"
         + "  });"
+        + "});"
+        # Dirección y horario — todo libre (letras, números, símbolos)
+        + "document.querySelectorAll("
+        + "  'input[name=\"direccion\"],input[name=\"horario\"],"
+        + "   input[name=\"wmsg\"],input[name=\"whatsapp_msg\"]'"
+        + ").forEach(function(el){"
+        + "  el.removeEventListener('input',function(){});"
         + "});"
         + "document.querySelectorAll("
         + "  'input[name=\"nombre\"],input[name=\"g_nombre\"],input[name=\"ck_nombre\"],"
@@ -1827,196 +1898,641 @@ def index():
 
     cards = ""
     for t in tiendas:
-        tid     = t["id"]
-        pc      = t.get("color","#4f46e5")
-        n_prod  = prod_map.get(tid, 0)
-        n_promo = promo_map.get(tid, 0)
-        badge   = (f'<div style="display:inline-flex;align-items:center;gap:4px;'
-                   f'font-size:.63rem;font-weight:800;padding:3px 10px;border-radius:99px;'
-                   f'background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.35);'
-                   f'color:#fca5a5;margin-top:6px">🎁 {n_promo} promo{"s" if n_promo>1 else ""}</div>'
-                   if n_promo else "")
-        cards += (
-            f'<a href="/entrar/{tid}" style="--pc:{pc};position:relative;border-radius:22px;'
-            f'overflow:hidden;text-decoration:none;color:#fff;display:flex;flex-direction:column;'
-            f'background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.1);'
-            f'transition:transform .25s,box-shadow .25s;cursor:pointer" '
-            f'onmouseover="this.style.transform=\'translateY(-6px)\';'
-            f'this.style.boxShadow=\'0 24px 64px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.15)\'"  '
-            f'onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\'">'
-            f'<div style="position:absolute;inset:0;border-radius:22px;'
-            f'background:radial-gradient(circle at 50% 0%,{pc} 0%,transparent 65%);'
-            f'opacity:0;transition:opacity .3s;pointer-events:none" '
-            f'onmouseover="this.style.opacity=\'.13\'" onmouseout="this.style.opacity=\'0\'"></div>'
-            f'<div style="position:relative;z-index:1;padding:28px 24px 56px;flex:1;display:flex;flex-direction:column;gap:7px">'
-            f'<div style="font-size:2.8rem;filter:drop-shadow(0 4px 16px rgba(0,0,0,.3));margin-bottom:4px">{t.get("emoji","🏪")}</div>'
-            f'<h2 style="font-size:1.1rem;font-weight:900;letter-spacing:-.02em;margin:0">{t["nombre"]}</h2>'
-            f'<p style="font-size:.77rem;color:rgba(255,255,255,.45);font-weight:500;margin:0">'
-            f'{t.get("tipo","Tienda")}'
-            + (f' · {t.get("ciudad","")}' if t.get("ciudad") else "")
-            + f'</p>'
-            + (f'<p style="font-size:.7rem;color:rgba(255,255,255,.28);margin:0">⏰ {t.get("horario","")}</p>' if t.get("horario") else "")
-            + f'<div style="display:flex;align-items:center;gap:8px;font-size:.72rem;'
-            f'color:rgba(255,255,255,.35);font-weight:600;margin-top:4px">'
-            f'<span>📦 {n_prod}</span><span>·</span>'
-            f'<span style="color:#4ade80">🟢 En línea</span></div>'
-            f'{badge}</div>'
-            f'<div style="position:absolute;bottom:18px;right:18px;z-index:1;'
-            f'width:32px;height:32px;border-radius:50%;'
-            f'background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);'
-            f'display:flex;align-items:center;justify-content:center;font-size:.9rem">→</div>'
-            f'</a>'
+        tid      = t["id"]
+        pc       = t.get("color","#4f46e5")
+        n_prod   = prod_map.get(tid, 0)
+        n_promo  = promo_map.get(tid, 0)
+        en_man   = bool(t.get("en_mantenimiento", 0))
+
+        badge = (
+            f'<div style="display:inline-flex;align-items:center;gap:4px;'
+            f'font-size:.63rem;font-weight:800;padding:3px 10px;border-radius:99px;'
+            f'background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.35);'
+            f'color:#fca5a5;margin-top:6px">🎁 {n_promo} promo{"s" if n_promo>1 else ""}</div>'
+            if n_promo else ""
         )
+        est_badge = (f'<span style="color:#fbbf24">🔧 Mantenimiento</span>'
+                     if en_man else f'<span style="color:#4ade80">🟢 En línea</span>')
+        horario_html = (f'<p style="font-size:.7rem;color:rgba(255,255,255,.28);margin:0">⏰ {t.get("horario","")}</p>'
+                        if t.get("horario") else "")
+        ciudad_html = f' · {t.get("ciudad","")}' if t.get("ciudad") else ""
+
+        cards += (
+            '<a href="/entrar/' + str(tid) + '" class="tcard">'
+            '<div class="tcard-glow" style="background:radial-gradient(circle at 50% 0%,'
+            + pc + '30 0%,transparent 70%)"></div>'
+            '<div class="tcard-shine"></div>'
+            '<div class="tcard-body">'
+            '<div class="tcard-emoji">' + t.get("emoji","🏪") + '</div>'
+            '<div class="tcard-name">' + t["nombre"] + '</div>'
+            '<div class="tcard-sub">' + t.get("tipo","Tienda") + ciudad_html + '</div>'
+            + horario_html +
+            '<div class="tcard-meta">'
+            + ('<span style="display:inline-flex;align-items:center;gap:5px;font-size:.68rem;font-weight:700;padding:3px 10px;border-radius:99px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.35);color:#fbbf24">🔧 Mantenimiento</span>'
+               if en_man else
+               '<span class="tcard-online">🟢 En línea</span>')
+            + badge +
+            '</div>'
+            '<div class="tcard-stats">'
+            '<span class="tcard-stat"><span class="tstat-icon">📦</span>' + str(n_prod) + ' productos</span>'
+            '</div>'
+            '</div>'
+            '<div class="tcard-arrow">'
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">'
+            '<path d="M5 12h14M12 5l7 7-7 7"/></svg>'
+            '</div>'
+            '</a>'
+        )
+
+    n_tiendas = len(tiendas)
 
     return (
         "<!DOCTYPE html><html lang='es'><head>"
         "<meta charset='UTF-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>GestorPro · Bienvenido</title>"
-        "<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap' rel='stylesheet'>"
+        "<link href='https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap' rel='stylesheet'>"
         "<style>"
+
+        # ── Base ────────────────────────────────────────────────
         "*{box-sizing:border-box;margin:0;padding:0}"
         "html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;"
-        "background:#07070f;color:#fff;min-height:100vh}"
+        "background:#060612;color:#fff;min-height:100vh;overflow-x:hidden}"
+
+        # ── Canvas estrellas ────────────────────────────────────
         "#cvs{position:fixed;inset:0;z-index:0;pointer-events:none}"
-        ".au{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}"
+
+        # ── Fondo ilustraciones (pan + carrito) ─────────────────
+        ".bg-art{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}"
+
+        # Pan izquierda
+        ".pan-wrap{"
+        "position:absolute;left:-60px;top:50%;transform:translateY(-50%);"
+        "width:520px;width:520px;opacity:.38;"
+        "animation:pan-float 9s ease-in-out infinite;"
+        "filter:blur(.6px) drop-shadow(0 0 60px #f59e0b88)}"
+        "@keyframes pan-float{"
+        "0%,100%{transform:translateY(-50%) rotate(-6deg)}"
+        "50%{transform:translateY(calc(-50% - 22px)) rotate(-3deg)}}"
+
+        # Carrito derecha
+        ".cart-wrap{"
+        "position:absolute;right:-80px;top:50%;transform:translateY(-50%);"
+        "width:480px;width:480px;opacity:.38;"
+        "animation:cart-float 11s ease-in-out infinite;"
+        "filter:blur(.6px) drop-shadow(0 0 60px #6366f188)}"
+        "@keyframes cart-float{"
+        "0%,100%{transform:translateY(-50%) rotate(5deg)}"
+        "50%{transform:translateY(calc(-50% + 18px)) rotate(2deg)}}"
+
+        # Glow atrás del pan
+        ".pan-glow{"
+        "position:absolute;left:-200px;top:50%;transform:translateY(-50%);"
+        "width:700px;height:700px;border-radius:50%;"
+        "background:radial-gradient(circle,rgba(245,158,11,.12) 0%,transparent 65%);"
+        "pointer-events:none}"
+
+        # Glow atrás del carrito
+        ".cart-glow{"
+        "position:absolute;right:-200px;top:50%;transform:translateY(-50%);"
+        "width:700px;height:700px;border-radius:50%;"
+        "background:radial-gradient(circle,rgba(99,102,241,.12) 0%,transparent 65%);"
+        "pointer-events:none}"
+
+        # ── Aurora ──────────────────────────────────────────────
+        ".au{position:fixed;inset:0;z-index:2;pointer-events:none;overflow:hidden}"
         ".a1{position:absolute;width:900px;height:900px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(79,70,229,.2) 0%,transparent 70%);"
+        "background:radial-gradient(circle,rgba(79,70,229,.15) 0%,transparent 70%);"
         "top:-300px;right:-200px;animation:da 18s ease-in-out infinite alternate}"
         ".a2{position:absolute;width:700px;height:700px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(16,185,129,.12) 0%,transparent 70%);"
+        "background:radial-gradient(circle,rgba(245,158,11,.08) 0%,transparent 70%);"
         "bottom:-200px;left:-150px;animation:db 22s ease-in-out infinite alternate}"
-        "@keyframes da{0%{transform:translate(0,0)}100%{transform:translate(-50px,35px)}}"
-        "@keyframes db{0%{transform:translate(0,0)}100%{transform:translate(45px,-45px)}}"
-        ".gd{position:fixed;inset:0;z-index:2;pointer-events:none;"
-        "background-image:radial-gradient(rgba(255,255,255,.03) 1px,transparent 1px);"
-        "background-size:36px 36px}"
+        ".a3{position:absolute;width:500px;height:500px;border-radius:50%;"
+        "background:radial-gradient(circle,rgba(236,72,153,.06) 0%,transparent 70%);"
+        "top:40%;left:50%;transform:translate(-50%,-50%);animation:dc 14s ease-in-out infinite}"
+        "@keyframes da{0%{transform:translate(0,0)}100%{transform:translate(-60px,40px)}}"
+        "@keyframes db{0%{transform:translate(0,0)}100%{transform:translate(50px,-50px)}}"
+        "@keyframes dc{0%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.2)}100%{transform:translate(-50%,-50%) scale(1)}}"
 
-        # ── SPLASH ──────────────────────────────────────────────────
-        "#sp{position:fixed;inset:0;z-index:9999;background:#07070f;"
-        "display:flex;flex-direction:column;align-items:center;"
-        "justify-content:center;transition:opacity .9s ease,visibility .9s ease}"
-        "#sp.out{opacity:0;visibility:hidden;pointer-events:none}"
-        ".spl{width:96px;height:96px;border-radius:26px;"
-        "background:linear-gradient(135deg,#4338ca,#6366f1);"
-        "display:flex;align-items:center;justify-content:center;font-size:2.8rem;"
-        "margin:0 auto 28px;"
-        "box-shadow:0 0 0 12px rgba(79,70,229,.12),0 0 0 24px rgba(79,70,229,.06),"
-        "0 20px 60px rgba(79,70,229,.55);"
-        "animation:pop .6s cubic-bezier(.34,1.56,.64,1) both}"
-        "@keyframes pop{from{opacity:0;transform:scale(.4) rotate(-8deg)}to{opacity:1;transform:scale(1) rotate(0)}}"
-        ".spt1{font-size:clamp(1.8rem,5vw,3rem);font-weight:900;letter-spacing:-.04em;text-align:center;"
-        "background:linear-gradient(135deg,#fff 30%,#818cf8);"
+        # Grid puntitos
+        ".gd{position:fixed;inset:0;z-index:3;pointer-events:none;"
+        "background-image:radial-gradient(rgba(255,255,255,.022) 1px,transparent 1px);"
+        "background-size:38px 38px}"
+
+        # ── Contenido ───────────────────────────────────────────
+        ".page{position:relative;z-index:10;min-height:100vh;"
+        "display:flex;flex-direction:column;align-items:center;padding:64px 20px 90px}"
+
+        # ── Hero ────────────────────────────────────────────────
+        ".hero{text-align:center;margin-bottom:60px}"
+
+        ".hero-logo{"
+        "width:92px;height:92px;border-radius:26px;"
+        "background:linear-gradient(135deg,#3730a3 0%,#4f46e5 50%,#6366f1 100%);"
+        "display:flex;align-items:center;justify-content:center;font-size:2.6rem;"
+        "margin:0 auto 26px;"
+        "box-shadow:0 0 0 12px rgba(79,70,229,.1),0 0 0 24px rgba(79,70,229,.05),"
+        "0 24px 64px rgba(79,70,229,.55);"
+        "animation:logo-pulse 4s ease infinite}"
+
+        "@keyframes logo-pulse{"
+        "0%,100%{box-shadow:0 0 0 12px rgba(79,70,229,.1),0 0 0 24px rgba(79,70,229,.05),0 24px 64px rgba(79,70,229,.55)}"
+        "50%{box-shadow:0 0 0 16px rgba(79,70,229,.16),0 0 0 32px rgba(79,70,229,.08),0 24px 80px rgba(79,70,229,.75)}}"
+
+        ".hero-eyebrow{"
+        "display:inline-flex;align-items:center;gap:7px;"
+        "padding:5px 16px;border-radius:99px;margin-bottom:18px;"
+        "background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);"
+        "font-size:.72rem;font-weight:700;color:#a5b4fc;letter-spacing:.06em;text-transform:uppercase}"
+        ".eyebrow-dot{width:6px;height:6px;border-radius:50%;"
+        "background:#4ade80;box-shadow:0 0 8px #4ade80;animation:blink 2s ease infinite}"
+        "@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}"
+
+        ".hero h1{"
+        "font-family:'Syne',sans-serif;"
+        "font-size:clamp(3rem,8vw,5.5rem);font-weight:900;letter-spacing:-.04em;line-height:.95;"
+        "background:linear-gradient(145deg,#ffffff 0%,#c7d2fe 45%,#818cf8 75%,#f0abfc 100%);"
         "-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;"
-        "opacity:0;animation:up .7s ease .4s both}"
-        ".spt2{font-size:clamp(.85rem,2vw,1rem);color:rgba(255,255,255,.45);"
-        "font-weight:500;margin-top:8px;text-align:center;"
-        "opacity:0;animation:up .7s ease .6s both}"
-        "@keyframes up{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}"
-        ".spbar{width:200px;height:3px;background:rgba(255,255,255,.08);"
-        "border-radius:99px;margin:28px auto 0;overflow:hidden;"
-        "opacity:0;animation:up .5s ease .8s both}"
-        ".spfill{height:100%;width:0;border-radius:99px;"
-        "background:linear-gradient(90deg,#4338ca,#818cf8);"
-        "animation:fill 1.6s cubic-bezier(.4,0,.2,1) .95s both}"
-        "@keyframes fill{from{width:0}to{width:100%}}"
-        ".spdots{display:flex;gap:6px;justify-content:center;margin-top:12px;"
-        "opacity:0;animation:up .5s ease .8s both}"
-        ".sd{width:6px;height:6px;border-radius:50%;background:#6366f1;"
-        "animation:bop 1.1s ease infinite}"
-        ".sd:nth-child(2){animation-delay:.16s;background:#818cf8}"
-        ".sd:nth-child(3){animation-delay:.32s;background:#a5b4fc}"
-        "@keyframes bop{0%,80%,100%{transform:scaleY(.6);opacity:.4}40%{transform:scaleY(1.2);opacity:1}}"
+        "margin-bottom:16px}"
 
-        # ── CONTENIDO ──────────────────────────────────────────────
-        "#main{position:relative;z-index:10;max-width:1040px;margin:0 auto;"
-        "padding:52px 24px 64px;opacity:0;transform:translateY(20px);"
-        "transition:opacity .8s ease,transform .8s ease}"
-        "#main.vis{opacity:1;transform:translateY(0)}"
-        ".hd{text-align:center;margin-bottom:48px}"
-        ".hl{display:inline-flex;align-items:center;justify-content:center;"
-        "width:70px;height:70px;border-radius:20px;"
-        "background:linear-gradient(135deg,#4338ca,#6366f1);font-size:2rem;"
-        "margin:0 auto 18px;"
-        "box-shadow:0 0 0 8px rgba(79,70,229,.1),0 16px 48px rgba(79,70,229,.4)}"
-        ".ht{font-size:clamp(1.8rem,4vw,2.8rem);font-weight:900;letter-spacing:-.04em;"
-        "background:linear-gradient(135deg,#fff 40%,rgba(129,140,248,.8));"
-        "-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:10px}"
-        ".hs{font-size:.88rem;color:rgba(255,255,255,.38);font-weight:500}"
-        ".hp{display:inline-flex;align-items:center;gap:6px;margin-top:14px;"
-        "padding:5px 16px;border-radius:99px;"
-        "background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);"
-        "font-size:.73rem;font-weight:700;color:#4ade80}"
-        ".dot{width:7px;height:7px;border-radius:50%;background:#22c55e;"
-        "box-shadow:0 0 8px #22c55e;animation:bk 2s ease infinite;flex-shrink:0}"
-        "@keyframes bk{0%,100%{opacity:1}50%{opacity:.3}}"
-        ".gr{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:20px}"
-        ".ft{text-align:center;margin-top:44px}"
-        ".fta{font-size:.68rem;color:rgba(255,255,255,.08);text-decoration:none;transition:.2s}"
-        ".fta:hover{color:rgba(255,255,255,.35)}"
-        "@media(max-width:480px){#main{padding:32px 16px 48px}"
-        ".gr{grid-template-columns:1fr;gap:14px}.hd{margin-bottom:32px}}"
+        ".hero p{"
+        "font-size:clamp(.9rem,2vw,1.05rem);color:rgba(255,255,255,.38);"
+        "font-weight:500;margin-bottom:28px;max-width:420px;margin-left:auto;margin-right:auto}"
+
+        ".hero-stats{"
+        "display:inline-flex;align-items:center;gap:20px;"
+        "padding:10px 24px;border-radius:99px;"
+        "background:rgba(255,255,255,.04);"
+        "border:1px solid rgba(255,255,255,.09);"
+        "backdrop-filter:blur(12px);"
+        "font-size:.8rem;font-weight:600;color:rgba(255,255,255,.5)}"
+        ".stat-sep{width:1px;height:14px;background:rgba(255,255,255,.12)}"
+        ".stat-val{font-weight:800;color:#fff;font-size:.95rem}"
+
+        # ── Etiqueta decorativa central ─────────────────────────
+        ".deco-tags{"
+        "display:flex;align-items:center;justify-content:center;gap:10px;"
+        "margin-bottom:48px;flex-wrap:wrap}"
+        ".dtag{"
+        "display:inline-flex;align-items:center;gap:6px;"
+        "padding:6px 14px;border-radius:99px;"
+        "font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase}"
+        ".dtag-pan{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);color:#fcd34d}"
+        ".dtag-shop{background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);color:#a5b4fc}"
+        ".dtag-col{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);color:#4ade80}"
+
+        # ── Grid tiendas ────────────────────────────────────────
+        ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));"
+        "gap:20px;width:100%;max-width:1120px}"
+
+        # ── Card tienda ─────────────────────────────────────────
+        ".tcard{"
+        "position:relative;border-radius:24px;overflow:hidden;"
+        "text-decoration:none;color:#fff;display:flex;flex-direction:column;"
+        "background:linear-gradient(145deg,rgba(255,255,255,.055) 0%,rgba(255,255,255,.025) 100%);"
+        "border:1px solid rgba(255,255,255,.09);"
+        "backdrop-filter:blur(20px);"
+        "transition:transform .32s cubic-bezier(.22,1,.36,1),box-shadow .32s,border-color .32s;"
+        "cursor:pointer;min-height:230px}"
+
+        ".tcard::before{"
+        "content:'';position:absolute;inset:0;border-radius:24px;"
+        "background:linear-gradient(135deg,rgba(255,255,255,.06) 0%,rgba(255,255,255,0) 60%);"
+        "pointer-events:none;z-index:0}"
+
+        ".tcard:hover{"
+        "transform:translateY(-10px) scale(1.015);"
+        "box-shadow:0 40px 80px rgba(0,0,0,.55),0 0 0 1.5px rgba(255,255,255,.2);"
+        "border-color:rgba(255,255,255,.2)}"
+
+        ".tcard-glow{"
+        "position:absolute;inset:0;opacity:0;transition:opacity .35s;pointer-events:none;z-index:0}"
+        ".tcard:hover .tcard-glow{opacity:1}"
+
+        # Shine sweep on hover
+        ".tcard-shine{"
+        "position:absolute;top:0;left:-100%;width:60%;height:100%;"
+        "background:linear-gradient(105deg,transparent 0%,rgba(255,255,255,.06) 50%,transparent 100%);"
+        "transition:left .5s ease;pointer-events:none;z-index:2}"
+        ".tcard:hover .tcard-shine{left:150%}"
+
+        ".tcard-body{"
+        "position:relative;z-index:1;padding:28px 24px 20px;"
+        "flex:1;display:flex;flex-direction:column;gap:8px}"
+
+        ".tcard-emoji{"
+        "font-size:3.2rem;filter:drop-shadow(0 6px 24px rgba(0,0,0,.4));"
+        "margin-bottom:4px;transition:transform .3s}"
+        ".tcard:hover .tcard-emoji{transform:scale(1.1) rotate(-4deg)}"
+
+        ".tcard-name{"
+        "font-family:'Syne',sans-serif;"
+        "font-size:1.2rem;font-weight:800;letter-spacing:-.025em;line-height:1.2}"
+
+        ".tcard-sub{"
+        "font-size:.75rem;color:rgba(255,255,255,.4);font-weight:500}"
+
+        ".tcard-meta{"
+        "display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px}"
+
+        ".tcard-online{"
+        "display:inline-flex;align-items:center;gap:5px;"
+        "font-size:.67rem;font-weight:700;padding:3px 10px;border-radius:99px;"
+        "background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.2);color:#4ade80}"
+
+        ".tcard-stats{"
+        "display:flex;align-items:center;gap:12px;margin-top:auto;padding-top:14px;"
+        "border-top:1px solid rgba(255,255,255,.06)}"
+
+        ".tcard-stat{"
+        "display:flex;align-items:center;gap:6px;"
+        "font-size:.72rem;color:rgba(255,255,255,.32);font-weight:600}"
+
+        ".tstat-icon{font-size:.85rem}"
+
+        ".tcard-arrow{"
+        "position:absolute;bottom:22px;right:22px;z-index:2;"
+        "width:36px;height:36px;border-radius:50%;"
+        "background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);"
+        "display:flex;align-items:center;justify-content:center;"
+        "color:rgba(255,255,255,.5);transition:all .25s cubic-bezier(.22,1,.36,1)}"
+        ".tcard:hover .tcard-arrow{"
+        "background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.3);"
+        "color:#fff;transform:scale(1.15) translateX(2px)}"
+
+        # ── Footer ──────────────────────────────────────────────
+        ".footer{"
+        "margin-top:70px;text-align:center;"
+        "font-size:.7rem;color:rgba(255,255,255,.15);font-weight:500}"
+        ".footer a{color:rgba(255,255,255,.22);text-decoration:none;transition:.2s}"
+        ".footer a:hover{color:rgba(255,255,255,.5)}"
+
+        # ── Splash ──────────────────────────────────────────────
+        "@keyframes sp-pop{from{opacity:0;transform:scale(.3) rotate(-12deg)}to{opacity:1;transform:scale(1) rotate(0)}}"
+        "@keyframes sp-up{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}"
+        "@keyframes sp-dt{0%,80%,100%{transform:scale(.6);opacity:.3}40%{transform:scale(1);opacity:1}}"
+
+        "@media(max-width:640px){"
+        ".hero{margin-bottom:36px}"
+        ".page{padding:40px 14px 70px}"
+        ".pan-wrap,.cart-wrap{display:none}"
+        ".hero h1{font-size:2.8rem}"
+        "}"
+
         "</style></head><body>"
 
-        # Fondo
+        # ── Canvas ──────────────────────────────────────────────
         "<canvas id='cvs'></canvas>"
-        "<div class='au'><div class='a1'></div><div class='a2'></div></div>"
+
+        # ── ILUSTRACIONES DE FONDO ──────────────────────────────
+        "<div class='bg-art'>"
+
+        # Glow detrás del pan
+        "<div class='pan-glow'></div>"
+        # Glow detrás del carrito
+        "<div class='cart-glow'></div>"
+
+        # 🍞 PAN ARTESANAL gigante izquierda
+        "<div class='pan-wrap'>"
+        "<svg viewBox='0 0 500 400' xmlns='http://www.w3.org/2000/svg' fill='none'>"
+
+        # Sombra base pan
+        "<ellipse cx='250' cy='370' rx='190' ry='22' fill='rgba(0,0,0,.3)'/>"
+
+        # Cuerpo principal del pan - hogaza redonda
+        "<ellipse cx='250' cy='220' rx='195' ry='145' fill='url(#panBase)'/>"
+        "<ellipse cx='250' cy='210' rx='185' ry='135' fill='url(#panTop)'/>"
+
+        # Greñas / cortes decorativos del pan
+        "<path d='M170 160 Q210 130 250 145 Q290 130 330 160' stroke='rgba(180,110,20,.6)' stroke-width='3' stroke-linecap='round'/>"
+        "<path d='M155 195 Q215 165 250 178 Q285 165 345 195' stroke='rgba(180,110,20,.5)' stroke-width='2.5' stroke-linecap='round'/>"
+        "<path d='M165 230 Q215 205 250 215 Q285 205 335 230' stroke='rgba(180,110,20,.4)' stroke-width='2' stroke-linecap='round'/>"
+
+        # Cruz decorativa artesanal
+        "<path d='M250 115 L250 175' stroke='rgba(200,130,30,.5)' stroke-width='2.5' stroke-linecap='round'/>"
+        "<path d='M220 145 L280 145' stroke='rgba(200,130,30,.5)' stroke-width='2.5' stroke-linecap='round'/>"
+
+        # Brillo superior
+        "<ellipse cx='200' cy='155' rx='55' ry='30' fill='rgba(255,230,150,.08)' transform='rotate(-20 200 155)'/>"
+
+        # Textura poros del pan
+        "<circle cx='185' cy='240' r='5' fill='rgba(150,80,10,.3)'/>"
+        "<circle cx='215' cy='260' r='4' fill='rgba(150,80,10,.25)'/>"
+        "<circle cx='248' cy='245' r='6' fill='rgba(150,80,10,.3)'/>"
+        "<circle cx='278' cy='255' r='4' fill='rgba(150,80,10,.25)'/>"
+        "<circle cx='310' cy='242' r='5' fill='rgba(150,80,10,.3)'/>"
+        "<circle cx='200' cy='285' r='4' fill='rgba(150,80,10,.2)'/>"
+        "<circle cx='235' cy='295' r='5' fill='rgba(150,80,10,.25)'/>"
+        "<circle cx='270' cy='288' r='4' fill='rgba(150,80,10,.2)'/>"
+        "<circle cx='300' cy='278' r='5' fill='rgba(150,80,10,.25)'/>"
+
+        # Espigas de trigo decorativas arriba
+        # Espiga izquierda
+        "<line x1='100' y1='320' x2='100' y2='60' stroke='rgba(245,158,11,.4)' stroke-width='2'/>"
+        "<ellipse cx='100' cy='60' rx='6' ry='14' fill='rgba(245,158,11,.5)' transform='rotate(-10 100 60)'/>"
+        "<ellipse cx='88' cy='80' rx='6' ry='14' fill='rgba(245,158,11,.45)' transform='rotate(-30 88 80)'/>"
+        "<ellipse cx='112' cy='80' rx='6' ry='14' fill='rgba(245,158,11,.45)' transform='rotate(30 112 80)'/>"
+        "<ellipse cx='90' cy='100' rx='6' ry='13' fill='rgba(245,158,11,.4)' transform='rotate(-25 90 100)'/>"
+        "<ellipse cx='110' cy='100' rx='6' ry='13' fill='rgba(245,158,11,.4)' transform='rotate(25 110 100)'/>"
+        "<ellipse cx='92' cy='120' rx='5' ry='12' fill='rgba(245,158,11,.35)' transform='rotate(-20 92 120)'/>"
+        "<ellipse cx='108' cy='120' rx='5' ry='12' fill='rgba(245,158,11,.35)' transform='rotate(20 108 120)'/>"
+
+        # Espiga derecha
+        "<line x1='400' y1='320' x2='400' y2='60' stroke='rgba(245,158,11,.4)' stroke-width='2'/>"
+        "<ellipse cx='400' cy='60' rx='6' ry='14' fill='rgba(245,158,11,.5)' transform='rotate(10 400 60)'/>"
+        "<ellipse cx='388' cy='80' rx='6' ry='14' fill='rgba(245,158,11,.45)' transform='rotate(-30 388 80)'/>"
+        "<ellipse cx='412' cy='80' rx='6' ry='14' fill='rgba(245,158,11,.45)' transform='rotate(30 412 80)'/>"
+        "<ellipse cx='390' cy='100' rx='6' ry='13' fill='rgba(245,158,11,.4)' transform='rotate(-25 390 100)'/>"
+        "<ellipse cx='410' cy='100' rx='6' ry='13' fill='rgba(245,158,11,.4)' transform='rotate(25 410 100)'/>"
+        "<ellipse cx='392' cy='120' rx='5' ry='12' fill='rgba(245,158,11,.35)' transform='rotate(-20 392 120)'/>"
+        "<ellipse cx='408' cy='120' rx='5' ry='12' fill='rgba(245,158,11,.35)' transform='rotate(20 408 120)'/>"
+
+        # Pequeñas estrellitas de harina
+        "<circle cx='140' cy='130' r='2' fill='rgba(255,240,200,.4)'/>"
+        "<circle cx='355' cy='110' r='2' fill='rgba(255,240,200,.4)'/>"
+        "<circle cx='160' cy='320' r='2.5' fill='rgba(255,240,200,.3)'/>"
+        "<circle cx='350' cy='335' r='2' fill='rgba(255,240,200,.3)'/>"
+        "<circle cx='130' cy='270' r='1.5' fill='rgba(255,240,200,.35)'/>"
+        "<circle cx='365' cy='280' r='1.5' fill='rgba(255,240,200,.35)'/>"
+
+        # Gradientes
+        "<defs>"
+        "<radialGradient id='panBase' cx='50%' cy='45%' r='55%'>"
+        "<stop offset='0%' stop-color='rgba(217,119,6,1)'/>"
+        "<stop offset='60%' stop-color='rgba(180,83,9,1)'/>"
+        "<stop offset='100%' stop-color='rgba(120,53,15,1)'/>"
+        "</radialGradient>"
+        "<radialGradient id='panTop' cx='40%' cy='35%' r='60%'>"
+        "<stop offset='0%' stop-color='rgba(251,191,36,.9)'/>"
+        "<stop offset='40%' stop-color='rgba(245,158,11,.8)'/>"
+        "<stop offset='100%' stop-color='rgba(180,83,9,.7)'/>"
+        "</radialGradient>"
+        "</defs>"
+
+        "</svg>"
+        "</div>"
+
+        # 🛒 CARRITO DE MERCADO gigante derecha
+        "<div class='cart-wrap'>"
+        "<svg viewBox='0 0 500 420' xmlns='http://www.w3.org/2000/svg' fill='none'>"
+
+        # Sombra ruedas
+        "<ellipse cx='155' cy='400' rx='35' ry='10' fill='rgba(0,0,0,.35)'/>"
+        "<ellipse cx='345' cy='400' rx='35' ry='10' fill='rgba(0,0,0,.35)'/>"
+
+        # Mango del carrito
+        "<path d='M80 60 Q80 35 105 35 L395 35 Q420 35 420 60' stroke='url(#handleGrad)' stroke-width='14' stroke-linecap='round' fill='none'/>"
+        "<path d='M80 60 Q80 35 105 35 L395 35 Q420 35 420 60' stroke='rgba(255,255,255,.1)' stroke-width='6' stroke-linecap='round' fill='none'/>"
+
+        # Estructura principal del carrito (alambres)
+        # Marco exterior
+        "<path d='M60 80 L80 320 Q82 340 102 340 L398 340 Q418 340 420 320 L440 80 Z' fill='url(#cartBody)' stroke='rgba(255,255,255,.15)' stroke-width='1.5'/>"
+
+        # Alambres horizontales del cuerpo
+        "<line x1='65' y1='130' x2='435' y2='130' stroke='rgba(255,255,255,.12)' stroke-width='1.5'/>"
+        "<line x1='68' y1='180' x2='432' y2='180' stroke='rgba(255,255,255,.12)' stroke-width='1.5'/>"
+        "<line x1='71' y1='230' x2='429' y2='230' stroke='rgba(255,255,255,.12)' stroke-width='1.5'/>"
+        "<line x1='74' y1='280' x2='426' y2='280' stroke='rgba(255,255,255,.12)' stroke-width='1.5'/>"
+
+        # Alambres verticales del cuerpo
+        "<line x1='115' y1='80' x2='105' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
+        "<line x1='165' y1='80' x2='155' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
+        "<line x1='215' y1='80' x2='210' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
+        "<line x1='250' y1='80' x2='250' y2='340' stroke='rgba(255,255,255,.1)' stroke-width='1.5'/>"
+        "<line x1='285' y1='80' x2='290' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
+        "<line x1='335' y1='80' x2='345' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
+        "<line x1='385' y1='80' x2='395' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
+
+        # Base del carrito
+        "<path d='M80 320 L82 340 Q84 356 102 356 L398 356 Q416 356 418 340 L420 320' stroke='url(#baseGrad)' stroke-width='10' stroke-linecap='round' fill='none'/>"
+
+        # Soporte diagonal izquierdo (pata)
+        "<line x1='105' y1='356' x2='145' y2='385' stroke='url(#legGrad)' stroke-width='9' stroke-linecap='round'/>"
+        # Soporte diagonal derecho (pata)
+        "<line x1='395' y1='356' x2='355' y2='385' stroke='url(#legGrad)' stroke-width='9' stroke-linecap='round'/>"
+
+        # Rueda izquierda
+        "<circle cx='145' cy='390' r='26' fill='url(#wheelBody)' stroke='rgba(255,255,255,.2)' stroke-width='2'/>"
+        "<circle cx='145' cy='390' r='12' fill='none' stroke='rgba(255,255,255,.15)' stroke-width='1.5'/>"
+        "<circle cx='145' cy='390' r='4' fill='rgba(255,255,255,.2)'/>"
+        "<line x1='145' y1='365' x2='145' y2='415' stroke='rgba(255,255,255,.12)' stroke-width='1.2'/>"
+        "<line x1='120' y1='390' x2='170' y2='390' stroke='rgba(255,255,255,.12)' stroke-width='1.2'/>"
+        "<line x1='128' y1='373' x2='162' y2='407' stroke='rgba(255,255,255,.08)' stroke-width='1'/>"
+        "<line x1='162' y1='373' x2='128' y2='407' stroke='rgba(255,255,255,.08)' stroke-width='1'/>"
+
+        # Rueda derecha
+        "<circle cx='355' cy='390' r='26' fill='url(#wheelBody)' stroke='rgba(255,255,255,.2)' stroke-width='2'/>"
+        "<circle cx='355' cy='390' r='12' fill='none' stroke='rgba(255,255,255,.15)' stroke-width='1.5'/>"
+        "<circle cx='355' cy='390' r='4' fill='rgba(255,255,255,.2)'/>"
+        "<line x1='355' y1='365' x2='355' y2='415' stroke='rgba(255,255,255,.12)' stroke-width='1.2'/>"
+        "<line x1='330' y1='390' x2='380' y2='390' stroke='rgba(255,255,255,.12)' stroke-width='1.2'/>"
+        "<line x1='338' y1='373' x2='372' y2='407' stroke='rgba(255,255,255,.08)' stroke-width='1'/>"
+        "<line x1='372' y1='373' x2='338' y2='407' stroke='rgba(255,255,255,.08)' stroke-width='1'/>"
+
+        # Productos dentro del carrito (siluetas)
+        # Caja
+        "<rect x='150' y='100' width='65' height='55' rx='5' fill='rgba(99,102,241,.25)' stroke='rgba(99,102,241,.4)' stroke-width='1.5'/>"
+        "<line x1='150' y1='120' x2='215' y2='120' stroke='rgba(99,102,241,.3)' stroke-width='1.2'/>"
+        "<line x1='182' y1='100' x2='182' y2='155' stroke='rgba(99,102,241,.3)' stroke-width='1.2'/>"
+
+        # Bolsa redonda
+        "<ellipse cx='270' cy='130' rx='38' ry='40' fill='rgba(245,158,11,.2)' stroke='rgba(245,158,11,.35)' stroke-width='1.5'/>"
+        "<path d='M255 100 Q270 90 285 100' stroke='rgba(245,158,11,.4)' stroke-width='2' stroke-linecap='round'/>"
+
+        # Botella
+        "<rect x='325' y='95' width='28' height='65' rx='6' fill='rgba(34,197,94,.2)' stroke='rgba(34,197,94,.35)' stroke-width='1.5'/>"
+        "<rect x='331' y='85' width='16' height='14' rx='3' fill='rgba(34,197,94,.25)' stroke='rgba(34,197,94,.35)' stroke-width='1'/>"
+
+        # Brillo interior carrito
+        "<path d='M80 80 L100 80 L88 280 L68 280 Z' fill='url(#cartShine)'/>"
+
+        # Destellos
+        "<circle cx='70' cy='70' r='3' fill='rgba(255,255,255,.4)'/>"
+        "<circle cx='430' cy='70' r='3' fill='rgba(255,255,255,.4)'/>"
+        "<circle cx='250' cy='40' r='2.5' fill='rgba(255,255,255,.5)'/>"
+
+        # Etiqueta de precio ficticia
+        "<rect x='180' y='240' width='70' height='28' rx='6' fill='rgba(239,68,68,.2)' stroke='rgba(239,68,68,.35)' stroke-width='1'/>"
+        "<text x='215' y='258' text-anchor='middle' font-size='11' font-weight='700' fill='rgba(255,100,100,.7)' font-family='system-ui'>OFERTA</text>"
+
+        "<defs>"
+        "<linearGradient id='handleGrad' x1='0%' y1='0%' x2='100%' y2='0%'>"
+        "<stop offset='0%' stop-color='rgba(148,163,184,.6)'/>"
+        "<stop offset='50%' stop-color='rgba(226,232,240,.8)'/>"
+        "<stop offset='100%' stop-color='rgba(148,163,184,.6)'/>"
+        "</linearGradient>"
+        "<linearGradient id='cartBody' x1='0%' y1='0%' x2='100%' y2='100%'>"
+        "<stop offset='0%' stop-color='rgba(99,102,241,.18)'/>"
+        "<stop offset='100%' stop-color='rgba(67,56,202,.08)'/>"
+        "</linearGradient>"
+        "<linearGradient id='baseGrad' x1='0%' y1='0%' x2='100%' y2='0%'>"
+        "<stop offset='0%' stop-color='rgba(148,163,184,.5)'/>"
+        "<stop offset='50%' stop-color='rgba(226,232,240,.7)'/>"
+        "<stop offset='100%' stop-color='rgba(148,163,184,.5)'/>"
+        "</linearGradient>"
+        "<linearGradient id='legGrad' x1='0%' y1='0%' x2='0%' y2='100%'>"
+        "<stop offset='0%' stop-color='rgba(148,163,184,.6)'/>"
+        "<stop offset='100%' stop-color='rgba(100,116,139,.4)'/>"
+        "</linearGradient>"
+        "<radialGradient id='wheelBody' cx='40%' cy='35%' r='60%'>"
+        "<stop offset='0%' stop-color='rgba(148,163,184,.5)'/>"
+        "<stop offset='100%' stop-color='rgba(51,65,85,.6)'/>"
+        "</radialGradient>"
+        "<linearGradient id='cartShine' x1='0%' y1='0%' x2='100%' y2='0%'>"
+        "<stop offset='0%' stop-color='rgba(255,255,255,.04)'/>"
+        "<stop offset='100%' stop-color='rgba(255,255,255,0)'/>"
+        "</linearGradient>"
+        "</defs>"
+
+        "</svg>"
+        "</div>"
+
+        "</div>"  # end .bg-art
+
+        # ── Aurora ──────────────────────────────────────────────
+        "<div class='au'><div class='a1'></div><div class='a2'></div><div class='a3'></div></div>"
+
+        # Grid
         "<div class='gd'></div>"
 
-        # ── SPLASH ─────────────────────────────────────────────────
-        "<div id='sp'>"
-        "<div class='spl'>🏪</div>"
-        "<div class='spt1'>Bienvenidos a GestorPro</div>"
-        "<div class='spt2'>Tiendas · Panaderías · Colombia 🇨🇴</div>"
-        "<div class='spbar'><div class='spfill'></div></div>"
-        "<div class='spdots'><div class='sd'></div><div class='sd'></div><div class='sd'></div></div>"
+        # ── SPLASH ──────────────────────────────────────────────
+        "<div id='splash' style='"
+        "position:fixed;inset:0;z-index:9999;"
+        "background:#060612;"
+        "display:flex;flex-direction:column;"
+        "align-items:center;justify-content:center;"
+        "transition:opacity 1.2s ease,visibility 1.2s ease'>"
+
+        "<div style='"
+        "width:96px;height:96px;border-radius:26px;"
+        "background:linear-gradient(135deg,#3730a3,#4f46e5,#6366f1);"
+        "display:flex;align-items:center;justify-content:center;"
+        "font-size:2.8rem;margin-bottom:28px;"
+        "box-shadow:0 0 0 12px rgba(79,70,229,.1),"
+        "0 0 0 24px rgba(79,70,229,.05),"
+        "0 20px 60px rgba(79,70,229,.55);"
+        "animation:sp-pop .7s cubic-bezier(.34,1.56,.64,1) both'>🏪</div>"
+
+        "<h1 style='"
+        "font-family:Syne,sans-serif;"
+        "font-size:clamp(2rem,5vw,3.2rem);font-weight:900;"
+        "letter-spacing:-.04em;text-align:center;margin-bottom:10px;"
+        "background:linear-gradient(145deg,#fff 30%,#818cf8 65%,#c4b5fd);"
+        "-webkit-background-clip:text;-webkit-text-fill-color:transparent;"
+        "background-clip:text;"
+        "opacity:0;animation:sp-up .7s ease .35s both'>GestorPro</h1>"
+
+        "<p style='"
+        "font-size:.92rem;color:rgba(255,255,255,.35);font-weight:500;"
+        "text-align:center;margin-bottom:36px;"
+        "opacity:0;animation:sp-up .7s ease .55s both'>"
+        "Sistema Multi-Tienda · Colombia 🇨🇴</p>"
+
+        "<div style='"
+        "width:180px;height:3px;background:rgba(255,255,255,.07);"
+        "border-radius:99px;overflow:hidden;"
+        "opacity:0;animation:sp-up .5s ease .7s both'>"
+        "<div id='sp-bar' style='"
+        "height:100%;width:0;border-radius:99px;"
+        "background:linear-gradient(90deg,#4338ca,#818cf8,#f0abfc);"
+        "transition:width 1.5s cubic-bezier(.4,0,.2,1)'></div>"
         "</div>"
 
-        # ── TIENDAS ────────────────────────────────────────────────
-        "<div id='main'>"
-        "<div class='hd'>"
-        "<div class='hl'>🏪</div>"
-        "<h1 class='ht'>GestorPro</h1>"
-        "<p class='hs'>Sistema de Gestión Multi-Tienda · Colombia 🇨🇴</p>"
-        "<span class='hp'>"
-        "<span class='dot'></span>"
-        f"{len(tiendas)} tienda{'s' if len(tiendas)!=1 else ''} disponible{'s' if len(tiendas)!=1 else ''}"
-        "</span></div>"
-        f"<div class='gr'>{cards}</div>"
-        "<div class='ft'><a href='/super' class='fta'>⚙ Acceso sistema</a></div>"
+        "<div style='"
+        "display:flex;gap:6px;margin-top:20px;"
+        "opacity:0;animation:sp-up .5s ease .75s both'>"
+        "<span style='width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);animation:sp-dt .9s ease infinite'></span>"
+        "<span style='width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);animation:sp-dt .9s ease .2s infinite'></span>"
+        "<span style='width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);animation:sp-dt .9s ease .4s infinite'></span>"
+        "</div>"
         "</div>"
 
+        # ── PÁGINA ──────────────────────────────────────────────
+        "<div class='page'>"
+        "<div class='hero'>"
+
+        "<div class='hero-eyebrow'>"
+        "<span class='eyebrow-dot'></span>"
+        "Sistema en línea"
+        "</div>"
+
+        "<div class='hero-logo'>🏪</div>"
+        "<h1>GestorPro</h1>"
+        "<p>Gestión Multi-Tienda · Panaderías & Comercios · Colombia</p>"
+
+        "<div class='deco-tags'>"
+        "<span class='dtag dtag-pan'>🍞 Panaderías</span>"
+        "<span class='dtag dtag-shop'>🛒 Tiendas</span>"
+        "<span class='dtag dtag-col'>🇨🇴 Colombia</span>"
+        "</div>"
+
+        "<div class='hero-stats'>"
+        "<span><span class='stat-val'>" + str(n_tiendas) + "</span> tienda" + ("s" if n_tiendas != 1 else "") + "</span>"
+        "<div class='stat-sep'></div>"
+        "<span>🟢 <span class='stat-val'>En línea</span></span>"
+        "<div class='stat-sep'></div>"
+        "<span>🔒 <span class='stat-val'>Seguro</span></span>"
+        "</div>"
+
+        "</div>"  # end .hero
+
+        "<div class='grid'>"
+        + cards +
+        "</div>"
+
+        "<div class='footer'>"
+        "© 2026 GestorPro &nbsp;·&nbsp; <a href='/super'>⚙ Acceso sistema</a>"
+        "</div>"
+        "</div>"  # end .page
+
+        # ── SCRIPTS ─────────────────────────────────────────────
         "<script>"
-        # Partículas
-        "(function(){var c=document.getElementById('cvs'),ctx=c.getContext('2d'),W,H,pts=[];"
-        "function sz(){W=c.width=innerWidth;H=c.height=innerHeight;}"
-        "function mk(){pts=[];for(var i=0,n=Math.floor(W*H/18000);i<n;i++)"
-        "pts.push({x:Math.random()*W,y:Math.random()*H,"
-        "vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25,"
-        "r:Math.random()*1.1+.3,a:Math.random()*.28+.04});}"
-        "function dr(){ctx.clearRect(0,0,W,H);"
-        "pts.forEach(function(p){"
-        "p.x+=p.vx;p.y+=p.vy;"
-        "if(p.x<0)p.x=W;if(p.x>W)p.x=0;"
-        "if(p.y<0)p.y=H;if(p.y>H)p.y=0;"
-        "ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.28);"
-        "ctx.fillStyle='rgba(99,102,241,'+p.a+')';ctx.fill();});"
-        "requestAnimationFrame(dr);}"
-        "sz();mk();dr();"
-        "window.addEventListener('resize',function(){sz();mk();});})();"
 
-        # Splash → mostrar contenido tras 2.8s
+        # Splash
+        "setTimeout(function(){document.getElementById('sp-bar').style.width='100%';},150);"
         "setTimeout(function(){"
-        "  document.getElementById('sp').classList.add('out');"
-        "  document.getElementById('main').classList.add('vis');"
-        "},2800);"
+        "  var sp=document.getElementById('splash');"
+        "  if(sp){sp.style.opacity='0';sp.style.visibility='hidden';sp.style.pointerEvents='none';}"
+        "},2300);"
 
-        # Parallax suave
-        "document.addEventListener('mousemove',function(e){"
-        "var cx=e.clientX/innerWidth-.5,cy=e.clientY/innerHeight-.5;"
-        "document.querySelector('.a1').style.transform='translate('+(-cx*25)+'px,'+(cy*-20)+'px)';"
-        "document.querySelector('.a2').style.transform='translate('+(cx*20)+'px,'+(cy*25)+'px)';});"
-        "</script></body></html>"
+        # Universo canvas
+        "(function(){"
+        "var c=document.getElementById('cvs');"
+        "var ctx=c.getContext('2d');"
+        "var W,H,stars=[];"
+        "function resize(){W=c.width=window.innerWidth;H=c.height=window.innerHeight;mkStars();}"
+        "function mkStars(){"
+        "stars=[];"
+        "var ns=Math.floor(W*H/1800);"
+        "var cols=['#fff','#c4b5fd','#93c5fd','#6ee7b7','#fde68a','#fdba74'];"
+        "for(var i=0;i<ns;i++)stars.push({"
+        "  x:Math.random()*W,y:Math.random()*H,"
+        "  r:Math.random()*1.5+.15,"
+        "  a:Math.random()*.7+.1,"
+        "  spd:Math.random()*.015+.003,"
+        "  phase:Math.random()*Math.PI*2,"
+        "  col:cols[Math.floor(Math.random()*cols.length)]"
+        "});}"
+        "function draw(t){"
+        "ctx.clearRect(0,0,W,H);"
+        "stars.forEach(function(s){"
+        "  var alpha=s.a*(0.5+0.5*Math.sin(t*s.spd+s.phase));"
+        "  ctx.globalAlpha=alpha;"
+        "  ctx.fillStyle=s.col;"
+        "  ctx.beginPath();"
+        "  ctx.arc(s.x,s.y,s.r,0,Math.PI*2);"
+        "  ctx.fill();"
+        "});"
+        "ctx.globalAlpha=1;"
+        "requestAnimationFrame(draw);"
+        "}"
+        "window.addEventListener('resize',resize);"
+        "resize();"
+        "requestAnimationFrame(draw);"
+        "})();"
+
+        "</script>"
+        "</body></html>"
     )
 
 # ================================================================
@@ -2027,7 +2543,34 @@ def entrar(tid):
     t = get_tienda(tid)
     if not t or not t.get("activa"):
         return redirect("/")
-
+    # ── Modo mantenimiento ─────────────────────────────────────────
+    if t.get("en_mantenimiento") and not is_sa():
+        pc_m = t.get("color","#4f46e5")
+        return (
+            "<!DOCTYPE html><html lang='es'><head>"
+            "<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+            f"<title>{t['nombre']} · Mantenimiento</title>"
+            "<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;800;900&display=swap' rel='stylesheet'>"
+            "<style>*{box-sizing:border-box;margin:0;padding:0}"
+            f"html,body{{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:#07070f;color:#fff;"
+            "min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}}"
+            ".box{text-align:center;max-width:400px}"
+            f".ico{{font-size:5rem;animation:spin 8s linear infinite;display:block;margin:0 auto 20px}}"
+            "@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}"
+            ".title{font-size:1.8rem;font-weight:900;margin-bottom:12px}"
+            f".msg{{color:rgba(255,255,255,.55);font-size:.92rem;line-height:1.6;margin-bottom:28px}}"
+            f".back{{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;"
+            f"border-radius:99px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);"
+            "color:rgba(255,255,255,.6);text-decoration:none;font-size:.82rem;font-weight:700;transition:.2s}}"
+            ".back:hover{background:rgba(255,255,255,.15);color:#fff}"
+            "</style></head><body>"
+            "<div class='box'>"
+            f"<span class='ico'>🔧</span>"
+            f"<div class='title'>{t['nombre']}</div>"
+            f"<p class='msg'>{t.get('msg_mantenimiento','Tienda temporalmente en mantenimiento. Vuelve pronto.')}</p>"
+            "<a href='/' class='back'>← Ver otras tiendas</a>"
+            "</div></body></html>"
+        )
     if session.get("user") and session.get("tienda_id") == tid:
         r = rol()
         if r == "admin":        return redirect("/admin")
@@ -2380,57 +2923,260 @@ f"transform:translateY(-2px);box-shadow:0 8px 28px rgba({pr},{pg},{pb},.55)}}"
         "<div class='modal-bg' id='modal' onclick='cliOv(event)'>"
         "<div class='modal-sheet'>"
         "<div class='modal-handle'></div>"
+
+        # Selector paso (login / recuperar)
+        "<div id='paso-login'>"
         "<div class='modal-head'>"
         "<div class='modal-title'>🔐 Acceso Staff</div>"
-        f"<div class='modal-sub'>{nom} &middot; Solo personal autorizado</div>"
+        f"<div class='modal-sub'>{nom} · Solo personal autorizado</div>"
         "</div>"
 
         "<form method='post' action='/login/" + tid + "' "
-        "style='display:flex;flex-direction:column'>"
+        "style='display:flex;flex-direction:column' id='form-login'>"
 
         "<div class='m-group'>"
         "<label class='m-label'>Usuario</label>"
         "<div class='m-field'>"
         "<span class='m-ico'>👤</span>"
-        "<input class='m-input' type='text' name='user' "
-        "placeholder='Tu usuario' required autocomplete='username' id='m-user'>"
+        "<input class='m-input' type='text' name='user' id='m-user'"
+        " placeholder='Tu usuario' required autocomplete='username'"
+        " oninput=\"this.value=this.value.replace(/[^a-zA-Z0-9_\\-]/g,'')\">"
         "</div></div>"
 
         "<div class='m-group'>"
         "<label class='m-label'>Contraseña</label>"
         "<div class='m-field pw-wrap'>"
         "<span class='m-ico'>🔒</span>"
-        "<input class='m-input' type='password' name='pass' "
-        "placeholder='••••••••' required autocomplete='current-password' id='m-pass'>"
+        "<input class='m-input' type='password' name='pass' id='m-pass'"
+        " placeholder='••••••••' required autocomplete='current-password'>"
         "<button type='button' class='pw-eye' onclick='tpw()'>"
         "<span id='eye'>👁</span></button>"
         "</div></div>"
 
-        "<button type='submit' class='btn-login'>Ingresar →</button>"
+        "<button type='submit' class='btn-login'"
+        " style='position:relative;overflow:hidden'>"
+        "<span style='position:absolute;inset:0;"
+        "background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent);"
+        "transform:skewX(-20deg);animation:shim 3s ease infinite'></span>"
+        "Ingresar →"
+        "</button>"
         "</form>"
 
-        "<div class='roles'>"
-        "<div class='role-chip'>👑 Administrador</div>"
-        "<div class='role-chip'>🧑‍💼 Empleado</div>"
-        "<div class='role-chip'>🏍️ Domiciliario</div>"
-        "<div class='role-chip'>📦 Proveedor</div>"
+        # Link recuperar
+        "<button onclick='irRecuperar()' style='"
+        "display:block;width:100%;text-align:center;margin-top:14px;"
+        "background:none;border:none;cursor:pointer;"
+        "font-size:.75rem;font-weight:700;color:rgba(255,255,255,.3);"
+        "font-family:inherit;transition:.2s;padding:6px'"
+        " onmouseover=\"this.style.color='rgba(255,255,255,.7)'\""
+        " onmouseout=\"this.style.color='rgba(255,255,255,.3)'\">"
+        "🔑 ¿Olvidaste tu contraseña?</button>"
+
+        # Roles
+        "<div style='margin-top:22px'>"
+        "<p style='font-size:.6rem;font-weight:800;text-transform:uppercase;"
+        "letter-spacing:.12em;color:rgba(255,255,255,.2);margin-bottom:12px;"
+        "text-align:center'>Acceso disponible para</p>"
+        "<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px'>"
+
+        # Admin
+        "<div style='"
+        "display:flex;align-items:center;gap:9px;padding:11px 13px;"
+        "border-radius:13px;"
+        "background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(245,158,11,.04));"
+        "border:1px solid rgba(245,158,11,.2);"
+        "transition:all .2s;cursor:default' "
+        "onmouseover=\"this.style.background='linear-gradient(135deg,rgba(245,158,11,.18),rgba(245,158,11,.08))';this.style.borderColor='rgba(245,158,11,.4)'\" "
+        "onmouseout=\"this.style.background='linear-gradient(135deg,rgba(245,158,11,.1),rgba(245,158,11,.04))';this.style.borderColor='rgba(245,158,11,.2)'\">"
+        "<div style='width:30px;height:30px;border-radius:8px;"
+        "background:rgba(245,158,11,.15);display:flex;align-items:center;"
+        "justify-content:center;font-size:.95rem;flex-shrink:0'>👑</div>"
+        "<div><div style='font-size:.75rem;font-weight:800;color:rgba(255,255,255,.75)'>Administrador</div>"
+        "<div style='font-size:.62rem;color:rgba(255,255,255,.25);margin-top:1px'>Gestión total</div></div>"
         "</div>"
 
-        "<a href='/' class='back-link' "
-        "style='display:inline-flex;align-items:center;gap:8px;margin-top:18px;"
+        # Empleado
+        "<div style='"
+        "display:flex;align-items:center;gap:9px;padding:11px 13px;"
+        "border-radius:13px;"
+        "background:linear-gradient(135deg,rgba(59,130,246,.1),rgba(59,130,246,.04));"
+        "border:1px solid rgba(59,130,246,.2);"
+        "transition:all .2s;cursor:default' "
+        "onmouseover=\"this.style.background='linear-gradient(135deg,rgba(59,130,246,.18),rgba(59,130,246,.08))';this.style.borderColor='rgba(59,130,246,.4)'\" "
+        "onmouseout=\"this.style.background='linear-gradient(135deg,rgba(59,130,246,.1),rgba(59,130,246,.04))';this.style.borderColor='rgba(59,130,246,.2)'\">"
+        "<div style='width:30px;height:30px;border-radius:8px;"
+        "background:rgba(59,130,246,.15);display:flex;align-items:center;"
+        "justify-content:center;font-size:.95rem;flex-shrink:0'>🧑‍💼</div>"
+        "<div><div style='font-size:.75rem;font-weight:800;color:rgba(255,255,255,.75)'>Empleado</div>"
+        "<div style='font-size:.62rem;color:rgba(255,255,255,.25);margin-top:1px'>Ventas y caja</div></div>"
+        "</div>"
+
+        # Domiciliario
+        "<div style='"
+        "display:flex;align-items:center;gap:9px;padding:11px 13px;"
+        "border-radius:13px;"
+        "background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,.04));"
+        "border:1px solid rgba(16,185,129,.2);"
+        "transition:all .2s;cursor:default' "
+        "onmouseover=\"this.style.background='linear-gradient(135deg,rgba(16,185,129,.18),rgba(16,185,129,.08))';this.style.borderColor='rgba(16,185,129,.4)'\" "
+        "onmouseout=\"this.style.background='linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,.04))';this.style.borderColor='rgba(16,185,129,.2)'\">"
+        "<div style='width:30px;height:30px;border-radius:8px;"
+        "background:rgba(16,185,129,.15);display:flex;align-items:center;"
+        "justify-content:center;font-size:.95rem;flex-shrink:0'>🏍️</div>"
+        "<div><div style='font-size:.75rem;font-weight:800;color:rgba(255,255,255,.75)'>Domiciliario</div>"
+        "<div style='font-size:.62rem;color:rgba(255,255,255,.25);margin-top:1px'>Entregas</div></div>"
+        "</div>"
+
+        # Proveedor
+        "<div style='"
+        "display:flex;align-items:center;gap:9px;padding:11px 13px;"
+        "border-radius:13px;"
+        "background:linear-gradient(135deg,rgba(139,92,246,.1),rgba(139,92,246,.04));"
+        "border:1px solid rgba(139,92,246,.2);"
+        "transition:all .2s;cursor:default' "
+        "onmouseover=\"this.style.background='linear-gradient(135deg,rgba(139,92,246,.18),rgba(139,92,246,.08))';this.style.borderColor='rgba(139,92,246,.4)'\" "
+        "onmouseout=\"this.style.background='linear-gradient(135deg,rgba(139,92,246,.1),rgba(139,92,246,.04))';this.style.borderColor='rgba(139,92,246,.2)'\">"
+        "<div style='width:30px;height:30px;border-radius:8px;"
+        "background:rgba(139,92,246,.15);display:flex;align-items:center;"
+        "justify-content:center;font-size:.95rem;flex-shrink:0'>📦</div>"
+        "<div><div style='font-size:.75rem;font-weight:800;color:rgba(255,255,255,.75)'>Proveedor</div>"
+        "<div style='font-size:.62rem;color:rgba(255,255,255,.25);margin-top:1px'>Abastecimiento</div></div>"
+        "</div>"
+
+        "</div></div>"
+
+        "<a href='/' class='back-link'"
+        " style='display:inline-flex;align-items:center;gap:8px;margin-top:18px;"
         "font-size:.8rem;font-weight:700;color:rgba(255,255,255,.55);"
         "background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);"
         "padding:9px 18px;border-radius:99px;transition:all .2s;text-decoration:none'>"
-        "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' "
-        "stroke='currentColor' stroke-width='2.5'><polyline points='15 18 9 12 15 6'/></svg>"
+        "<svg width='14' height='14' viewBox='0 0 24 24' fill='none'"
+        " stroke='currentColor' stroke-width='2.5'><polyline points='15 18 9 12 15 6'/></svg>"
         "Todas las tiendas</a>"
+        "</div>"  # fin paso-login
+
+        # ── PASO RECUPERAR ───────────────────────────────────────────────
+        "<div id='paso-rec' style='display:none'>"
+        "<div class='modal-head'>"
+        "<div class='modal-title'>🔑 Recuperar acceso</div>"
+        f"<div class='modal-sub'>{nom} · Ingresa tu usuario y teléfono registrado</div>"
+        "</div>"
+
+        # Pasos
+        "<div id='rec-p1'>"
+        "<form onsubmit='verRec(event)' style='display:flex;flex-direction:column;gap:0'>"
+        "<div class='m-group'>"
+        "<label class='m-label'>Usuario</label>"
+        "<div class='m-field'>"
+        "<span class='m-ico'>👤</span>"
+        "<input class='m-input' type='text' id='rec-usr' placeholder='Tu usuario' required"
+        " oninput=\"this.value=this.value.replace(/[^a-zA-Z0-9_\\-]/g,'')\"></div></div>"
+        "<div class='m-group'>"
+        "<label class='m-label'>Teléfono registrado</label>"
+        "<div class='m-field'>"
+        "<span class='m-ico'>📱</span>"
+        "<input class='m-input' type='tel' id='rec-tel' placeholder='3101234567' required"
+        " inputmode='numeric'"
+        " oninput=\"this.value=this.value.replace(/[^0-9]/g,'')\"></div></div>"
+        "<div id='rec-err' style='display:none' class='m-err'>⚠️ Usuario o teléfono incorrecto.</div>"
+        "<button type='submit' class='btn-login'>Verificar →</button>"
+        "</form>"
+        "</div>"  # rec-p1
+
+        "<div id='rec-p2' style='display:none'>"
+        "<form onsubmit='cambiarPass(event)' style='display:flex;flex-direction:column;gap:0'>"
+        "<div class='m-group'>"
+        "<label class='m-label'>Nueva contraseña</label>"
+        "<div class='m-field pw-wrap'>"
+        "<span class='m-ico'>🔒</span>"
+        "<input class='m-input' type='password' id='rec-np1' placeholder='Min 8, MAYÚS, número, especial' required>"
+        "<button type='button' class='pw-eye' onclick='tpw2()'><span id='eye2'>👁</span></button>"
         "</div></div>"
+        "<div class='m-group'>"
+        "<label class='m-label'>Confirmar contraseña</label>"
+        "<div class='m-field'>"
+        "<span class='m-ico'>🔒</span>"
+        "<input class='m-input' type='password' id='rec-np2' placeholder='Repite la contraseña' required>"
+        "</div></div>"
+        "<div id='rec-err2' style='display:none' class='m-err'>⚠️ Las contraseñas no coinciden o no cumplen requisitos.</div>"
+        "<div style='font-size:.72rem;color:rgba(255,255,255,.3);margin-bottom:14px'>"
+        "Min 8 chars · 1 MAYÚSCULA · 1 número · 1 especial (!@#$%)</div>"
+        "<button type='submit' class='btn-login'>🔐 Cambiar contraseña</button>"
+        "</form>"
+        "</div>"  # rec-p2
+
+        "<button onclick='irLogin()' style='"
+        "display:block;width:100%;text-align:center;margin-top:14px;"
+        "background:none;border:none;cursor:pointer;"
+        "font-size:.75rem;font-weight:700;color:rgba(255,255,255,.3);"
+        "font-family:inherit;transition:.2s;padding:6px'"
+        " onmouseover=\"this.style.color='rgba(255,255,255,.7)'\""
+        " onmouseout=\"this.style.color='rgba(255,255,255,.3)'\">"
+        "← Volver al login</button>"
+        "</div>"  # fin paso-rec
+
+        "</div></div>"  # modal-sheet + modal-bg
 
         # ── SUPERADMIN ──────────────────────────────────────────────────
         "<a href='/super' class='super-lnk'>⚙</a>"
 
         # ── SCRIPTS ─────────────────────────────────────────────────────
         "<script>"
+        # ── Recuperar contraseña staff ────────────────────────────────
+        "function irRecuperar(){"
+        "document.getElementById('paso-login').style.display='none';"
+        "document.getElementById('paso-rec').style.display='block';}"
+        "function irLogin(){"
+        "document.getElementById('paso-rec').style.display='none';"
+        "document.getElementById('paso-login').style.display='block';}"
+        "function tpw2(){"
+        "var i=document.getElementById('rec-np1');"
+        "var e=document.getElementById('eye2');"
+        "i.type=i.type==='password'?'text':'password';"
+        "e.textContent=i.type==='text'?'🙈':'👁';}"
+        # Verificar usuario + teléfono vía fetch
+        "function verRec(e){"
+        "e.preventDefault();"
+        "var usr=document.getElementById('rec-usr').value.trim();"
+        "var tel=document.getElementById('rec-tel').value.trim();"
+        "fetch('/rec_staff_ver',{"
+        "method:'POST',"
+        "headers:{'Content-Type':'application/json'},"
+        "body:JSON.stringify({tid:'" + tid + "',usr:usr,tel:tel})"
+        "}).then(function(r){return r.json();})"
+        ".then(function(d){"
+        "if(d.ok){"
+        "document.getElementById('rec-p1').style.display='none';"
+        "document.getElementById('rec-p2').style.display='block';"
+        "document.getElementById('rec-p2').dataset.usr=usr;"
+        "}else{"
+        "document.getElementById('rec-err').style.display='flex';"
+        "}}).catch(function(){document.getElementById('rec-err').style.display='flex';});}"
+        # Cambiar contraseña
+        "function cambiarPass(e){"
+        "e.preventDefault();"
+        "var np1=document.getElementById('rec-np1').value;"
+        "var np2=document.getElementById('rec-np2').value;"
+        "var usr=document.getElementById('rec-p2').dataset.usr||'';"
+        "if(np1!==np2||np1.length<8||!/[A-Z]/.test(np1)||!/[0-9]/.test(np1)||!/[!@#$%^&*]/.test(np1)){"
+        "document.getElementById('rec-err2').style.display='flex';return;}"
+        "fetch('/rec_staff_cambiar',{"
+        "method:'POST',"
+        "headers:{'Content-Type':'application/json'},"
+        "body:JSON.stringify({tid:'" + tid + "',usr:usr,np:np1})"
+        "}).then(function(r){return r.json();})"
+        ".then(function(d){"
+        "if(d.ok){"
+        "document.getElementById('rec-p2').innerHTML="
+        "'<div style=\"text-align:center;padding:20px\">"
+        "<div style=\"font-size:3rem;margin-bottom:12px\">✅</div>"
+        "<p style=\"font-weight:800;color:#4ade80\">¡Contraseña actualizada!</p>"
+        "<p style=\"font-size:.8rem;color:rgba(255,255,255,.4);margin-top:8px\">Ya puedes iniciar sesión.</p>"
+        "</div>';"
+        "setTimeout(irLogin,2800);"
+        "}else{"
+        "document.getElementById('rec-err2').style.display='flex';"
+        "}});}"
 
         # Partículas en canvas
         "(function(){"
@@ -2491,7 +3237,58 @@ f"transform:translateY(-2px);box-shadow:0 8px 28px rgba({pr},{pg},{pb},.55)}}"
         "if(b)b.style.transform='translate('+(cx*20)+'px,'+(cy*30)+'px)';});"
 
         "</script></body></html>"
-    )
+    ) 
+# ================================================================
+#  API RECUPERAR CONTRASEÑA STAFF (usada desde el modal de entrar)
+# ================================================================
+@app.route("/rec_staff_ver", methods=["POST"])
+def rec_staff_ver():
+    """Paso 1: verifica usuario + teléfono del staff para recuperar clave."""
+    try:
+        data = request.get_json(silent=True) or {}
+    except Exception:
+        data = {}
+    tid_r = str(data.get("tid","")).strip()
+    usr   = str(data.get("usr","")).strip()
+    tel   = str(data.get("tel","")).strip().replace(" ","").replace("-","")
+
+    if not tid_r or not usr or not tel:
+        return jsonify({"ok": False})
+
+    row = db_query(
+        "SELECT * FROM users WHERE tienda_id=%s AND user=%s",
+        (tid_r, usr), fetchone=True)
+    if not row:
+        return jsonify({"ok": False})
+
+    tel_db = str(row.get("telefono","") or "").strip().replace(" ","").replace("-","")
+    if tel_db and tel_db == tel:
+        return jsonify({"ok": True})
+    return jsonify({"ok": False})
+
+
+@app.route("/rec_staff_cambiar", methods=["POST"])
+def rec_staff_cambiar():
+    """Paso 2: cambia la contraseña del staff tras verificación exitosa."""
+    try:
+        data = request.get_json(silent=True) or {}
+    except Exception:
+        data = {}
+    tid_r = str(data.get("tid","")).strip()
+    usr   = str(data.get("usr","")).strip()
+    np    = str(data.get("np",""))
+
+    if not tid_r or not usr or not np:
+        return jsonify({"ok": False})
+
+    ok_p, _ = ok_pass(np)
+    if not ok_p:
+        return jsonify({"ok": False})
+
+    db_query(
+        "UPDATE users SET password=%s WHERE tienda_id=%s AND user=%s",
+        (generate_password_hash(np), tid_r, usr), commit=True)
+    return jsonify({"ok": True})
 
 @app.route("/guest/<tid>")
 def guest(tid):
@@ -2999,6 +3796,11 @@ def super_login():
         "</div>"
         "<button class='btn-sa' type='submit'>🔐 Acceder al sistema →</button>"
         "</form>"
+        "<div style='text-align:center;margin-top:16px'>"
+        "<a href='/super/recuperar' style='font-size:.75rem;color:rgba(255,255,255,.3);"
+        "text-decoration:none;transition:.2s' onmouseover=\"this.style.color='rgba(255,255,255,.6)'\" "
+        "onmouseout=\"this.style.color='rgba(255,255,255,.3)'\">¿Olvidaste la contraseña?</a>"
+        "</div>"
         "<a href='/' class='back'>← Volver al inicio</a>"
         "</div></div>"
         "<script>"
@@ -3017,7 +3819,220 @@ def super_login():
         "window.addEventListener('resize',function(){resize();mkPts();});})();"
         "</script></body></html>"
     )
+# ================================================================
+#  SUPER ADMIN — Recuperar contraseña por usuario + teléfono
+# ================================================================
+@app.route("/super/recuperar", methods=["GET","POST"])
+def super_recuperar():
+    if is_sa(): return redirect("/super/panel")
+    paso  = request.args.get("paso","1")
+    msg   = ""
+    form  = ""
 
+    if request.method == "POST":
+        ac = request.form.get("ac","")
+
+        # ── PASO 1: Verificar usuario + teléfono ─────────────────────
+        if ac == "verificar":
+            usr_input = request.form.get("user","").strip()
+            tel_input = request.form.get("telefono","").strip().replace(" ","").replace("-","")
+            row = db_query("SELECT * FROM superusers WHERE user=%s", (usr_input,), fetchone=True)
+            tel_db = (row.get("telefono","") or "").strip().replace(" ","").replace("-","") if row else ""
+
+            if row and tel_db and tel_db == tel_input:
+                # Guardar en sesión temporalmente
+                session["_sr_user"] = usr_input
+                session.modified = True
+                return redirect("/super/recuperar?paso=2")
+            else:
+                msg = '<div class="al a-d">⚠️ Usuario o teléfono incorrecto. Verifica los datos.</div>'
+
+        # ── PASO 2: Nueva contraseña ──────────────────────────────────
+        elif ac == "cambiar":
+            usr_s = session.get("_sr_user","")
+            if not usr_s:
+                return redirect("/super/recuperar")
+            np1 = request.form.get("np1","")
+            np2 = request.form.get("np2","")
+            if np1 != np2:
+                msg = '<div class="al a-d">❌ Las contraseñas no coinciden.</div>'
+                paso = "2"
+            else:
+                ok, err_msg = ok_pass(np1)
+                if not ok:
+                    msg = f'<div class="al a-d">❌ {err_msg}</div>'
+                    paso = "2"
+                else:
+                    db_query("UPDATE superusers SET password=%s WHERE user=%s",
+                             (generate_password_hash(np1), usr_s), commit=True)
+                    session.pop("_sr_user", None)
+                    return (
+                        "<!DOCTYPE html><html lang='es'><head>"
+                        "<meta charset='UTF-8'><meta http-equiv='refresh' content='3;url=/super'>"
+                        "<title>Contraseña actualizada</title>"
+                        "<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;900&display=swap' rel='stylesheet'>"
+                        "<style>*{box-sizing:border-box;margin:0;padding:0}"
+                        "body{font-family:'Plus Jakarta Sans',sans-serif;background:#07070f;color:#fff;"
+                        "min-height:100vh;display:flex;align-items:center;justify-content:center}"
+                        ".box{text-align:center;padding:40px}"
+                        ".ico{font-size:4rem;display:block;margin-bottom:16px}"
+                        "h2{font-size:1.6rem;font-weight:900;margin-bottom:10px}"
+                        "p{color:rgba(255,255,255,.5);font-size:.88rem}"
+                        "</style></head><body>"
+                        "<div class='box'><span class='ico'>✅</span>"
+                        "<h2>¡Contraseña actualizada!</h2>"
+                        "<p>Redirigiendo al login en 3 segundos...</p>"
+                        "<p style='margin-top:12px'><a href='/super' style='color:#818cf8'>Ir ahora →</a></p>"
+                        "</div></body></html>"
+                    )
+
+    # ── Estilos compartidos ───────────────────────────────────────────
+    st = (
+        "<style>"
+        "*{box-sizing:border-box;margin:0;padding:0}"
+        "html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:#07070f;color:#fff;"
+        "min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}"
+        ".card{width:100%;max-width:420px;background:rgba(255,255,255,.04);"
+        "border:1px solid rgba(255,255,255,.1);border-radius:28px;padding:44px 36px 38px;"
+        "backdrop-filter:blur(32px);box-shadow:0 32px 80px rgba(79,70,229,.2)}"
+        ".head{text-align:center;margin-bottom:28px}"
+        ".head h2{font-size:1.3rem;font-weight:900;margin:12px 0 6px;"
+        "background:linear-gradient(135deg,#fff 40%,#818cf8);"
+        "-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}"
+        ".head p{font-size:.76rem;color:rgba(255,255,255,.35)}"
+        ".lbl{font-size:.64rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;"
+        "color:rgba(255,255,255,.35);margin-bottom:6px;display:block}"
+        ".inp{width:100%;padding:12px 16px;border-radius:12px;border:1.5px solid rgba(255,255,255,.1);"
+        "background:rgba(255,255,255,.05);color:#fff;font-family:inherit;font-size:.9rem;"
+        "outline:none;transition:.2s;margin-bottom:14px}"
+        ".inp:focus{border-color:#4f46e5;background:rgba(255,255,255,.08);"
+        "box-shadow:0 0 0 3px rgba(79,70,229,.2)}"
+        ".inp::placeholder{color:rgba(255,255,255,.2)}"
+        ".btn-sa{width:100%;padding:13px;border-radius:13px;border:none;"
+        "background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;"
+        "font-family:inherit;font-size:.92rem;font-weight:800;cursor:pointer;"
+        "box-shadow:0 4px 20px rgba(79,70,229,.4);margin-top:6px;transition:all .2s}"
+        ".btn-sa:hover{transform:translateY(-2px)}"
+        ".back{display:block;text-align:center;margin-top:18px;font-size:.72rem;"
+        "color:rgba(255,255,255,.3);text-decoration:none}"
+        ".err{padding:10px 14px;border-radius:10px;background:rgba(239,68,68,.1);"
+        "border:1px solid rgba(239,68,68,.25);color:#fca5a5;font-size:.8rem;margin-bottom:14px}"
+        ".ok{padding:10px 14px;border-radius:10px;background:rgba(34,197,94,.1);"
+        "border:1px solid rgba(34,197,94,.25);color:#86efac;font-size:.8rem;margin-bottom:14px}"
+        ".paso{display:flex;gap:8px;justify-content:center;margin-bottom:20px}"
+        ".paso-dot{width:32px;height:6px;border-radius:99px;background:rgba(255,255,255,.15)}"
+        ".paso-dot.active{background:#4f46e5}"
+        "</style>"
+    )
+
+    # ── PASO 1 ────────────────────────────────────────────────────────
+    if paso == "1" or not session.get("_sr_user"):
+        form = (
+            f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
+            f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            f"<title>Recuperar acceso · Super Admin</title>"
+            f"<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap' rel='stylesheet'>"
+            f"{st}</head><body><div class='card'>"
+            f"<div class='head'><div style='font-size:3rem'>🔑</div>"
+            f"<h2>Recuperar acceso</h2>"
+            f"<p>Super Admin · GestorPro</p></div>"
+            f"<div class='paso'><div class='paso-dot active'></div><div class='paso-dot'></div></div>"
+            f"<p style='font-size:.82rem;color:rgba(255,255,255,.45);text-align:center;margin-bottom:20px'>"
+            f"Ingresa tu usuario y el teléfono registrado.</p>"
+            f"{msg}"
+            f"<form method='post'><input type='hidden' name='ac' value='verificar'>"
+            f"<label class='lbl'>Usuario</label>"
+            f"<input class='inp' type='text' name='user' placeholder='superadmin' required autofocus>"
+            f"<label class='lbl'>Teléfono registrado</label>"
+            f"<input class='inp' type='tel' name='telefono' placeholder='3101234567' required "
+            f"inputmode='numeric' oninput=\"this.value=this.value.replace(/[^0-9]/g,'')\"> "
+            f"<button class='btn-sa' type='submit'>Verificar →</button></form>"
+            f"<a href='/super' class='back'>← Volver al login</a>"
+            f"</div></body></html>"
+        )
+
+    # ── PASO 2 ────────────────────────────────────────────────────────
+    elif paso == "2" or session.get("_sr_user"):
+        usr_s = session.get("_sr_user","")
+        form  = (
+            f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
+            f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            f"<title>Nueva contraseña · Super Admin</title>"
+            f"<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap' rel='stylesheet'>"
+            f"{st}</head><body><div class='card'>"
+            f"<div class='head'><div style='font-size:3rem'>🔐</div>"
+            f"<h2>Nueva contraseña</h2>"
+            f"<p>Usuario: <strong>{usr_s}</strong></p></div>"
+            f"<div class='paso'><div class='paso-dot active'></div><div class='paso-dot active'></div></div>"
+            f"{msg}"
+            f"<form method='post'><input type='hidden' name='ac' value='cambiar'>"
+            f"<label class='lbl'>Nueva contraseña</label>"
+            f"<input class='inp' type='password' name='np1' placeholder='Min 8 chars, 1 mayús, 1 número, 1 especial' required autofocus>"
+            f"<label class='lbl'>Confirmar contraseña</label>"
+            f"<input class='inp' type='password' name='np2' placeholder='Repite la contraseña' required>"
+            f"<div style='font-size:.72rem;color:rgba(255,255,255,.3);margin-bottom:12px'>"
+            f"Requisitos: mínimo 8 caracteres · 1 mayúscula · 1 número · 1 especial (!@#$...)</div>"
+            f"<button class='btn-sa' type='submit'>🔐 Cambiar contraseña</button></form>"
+            f"<a href='/super/recuperar' class='back'>← Reintentar verificación</a>"
+            f"</div></body></html>"
+        )
+
+    return form
+@app.route("/super/mi_perfil", methods=["GET","POST"])
+def super_mi_perfil():
+    """Super admin puede actualizar su nombre, email y teléfono."""
+    if not is_sa(): return redirect("/super")
+    u   = session.get("user","superadmin")
+    row = db_query("SELECT * FROM superusers WHERE user=%s", (u,), fetchone=True)
+    if not row: return redirect("/super/panel")
+    msg = ""
+    if request.method == "POST":
+        nombre = request.form.get("nombre","").strip()
+        email  = request.form.get("email","").strip()
+        tel    = request.form.get("telefono","").strip().replace(" ","").replace("-","")
+        np     = request.form.get("np","").strip()
+        updates = {"nombre": nombre or row.get("nombre",""),
+                   "email":  email  or row.get("email",""),
+                   "telefono": tel  or row.get("telefono","")}
+        if np:
+            ok, em = ok_pass(np)
+            if not ok:
+                msg = f'<div class="al a-d">❌ {em}</div>'
+            else:
+                db_query("UPDATE superusers SET nombre=%s,email=%s,telefono=%s,password=%s WHERE user=%s",
+                         (updates["nombre"], updates["email"], updates["telefono"],
+                          generate_password_hash(np), u), commit=True)
+                msg = '<div class="al a-s">✅ Perfil y contraseña actualizados.</div>'
+        else:
+            db_query("UPDATE superusers SET nombre=%s,email=%s,telefono=%s WHERE user=%s",
+                     (updates["nombre"], updates["email"], updates["telefono"], u), commit=True)
+            msg = '<div class="al a-s">✅ Perfil actualizado.</div>'
+        row = db_query("SELECT * FROM superusers WHERE user=%s", (u,), fetchone=True)
+
+    return base("⚙️ Mi Perfil · Super Admin", (
+        msg +
+        f'<div class="sec" style="max-width:500px;margin:auto">'
+        f'<div class="sh"><h3>👤 Datos del Super Admin</h3>'
+        f'<a href="/super/panel" class="btn bg bsm">← Panel</a></div>'
+        f'<div class="sb2">'
+        f'<div class="al a-i" style="font-size:.8rem;margin-bottom:14px">'
+        f'🔑 El <strong>teléfono</strong> es necesario para recuperar tu contraseña si la olvidas.</div>'
+        f'<form method="post"><div class="fg2">'
+        f'<div class="fg"><label>Usuario (no editable)</label>'
+        f'<input type="text" value="{row.get("user","")}" disabled '
+        f'style="background:#f1f5f9;color:var(--mt)"></div>'
+        f'<div class="fg"><label>Nombre completo</label>'
+        f'<input type="text" name="nombre" value="{row.get("nombre","")}" placeholder="Super Admin GestorPro"></div>'
+        f'<div class="fg"><label>Email</label>'
+        f'<input type="email" name="email" value="{row.get("email","")}" placeholder="super@gestorpro.co"></div>'
+        f'<div class="fg"><label>📱 Teléfono (para recuperar clave) *</label>'
+        f'<input type="tel" name="telefono" value="{row.get("telefono","")}" placeholder="3101234567" '
+        f'inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,\'\')"></div>'
+        f'<div class="fg"><label>Nueva contraseña (opcional)</label>'
+        f'<input type="password" name="np" placeholder="Dejar vacío para no cambiar"></div>'
+        f'</div><div class="mt16"><button class="btn bp">💾 Guardar cambios</button></div>'
+        f'</form></div></div>'
+    ))
 @app.route("/super/panel")
 def super_panel():
     if not is_sa(): return redirect("/super")
@@ -3035,6 +4050,7 @@ def super_panel():
         f'<div class="sec"><div class="sh"><h3>⚡ Acciones Rápidas</h3></div>'
         f'<div class="sb2" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:11px">'
         f'<a href="/super/tiendas" class="btn bp blg">🏪 Ver Tiendas</a>'
+        f'<a href="/super/mi_perfil" class="btn bg blg">👤 Mi Perfil / Teléfono</a>'
         f'<a href="/super/nueva_tienda" class="btn bs blg">➕ Nueva Tienda</a>'
         f'<a href="/super/usuarios" class="btn bg blg">👥 Ver Admins</a>'
         f'</div></div>'))
@@ -3045,28 +4061,57 @@ def super_tiendas():
     tiendas=db_query("SELECT * FROM tiendas",fetchall=True) or []
     cards=""
     for t in tiendas:
-        nu=db_query("SELECT COUNT(*) as c FROM users WHERE tienda_id=%s",(t["id"],),fetchone=True)
-        activa=t.get("activa",1)
-        cards+=(f'<div class="tc" style="border-color:{t.get("color","#4f46e5")}">'
-                f'<div class="tc-top"><span class="tc-em">{t.get("emoji","🏪")}</span>'
-                f'<div class="tc-info"><h3>{t["nombre"]}</h3>'
-                f'<p>{t.get("tipo","")} &middot; {t.get("ciudad","")}</p>'
-                f'<p style="font-size:.7rem;color:var(--mt);margin-top:3px">ID: <code>{t["id"]}</code></p>'
-                f'<span class="tag {"t-gr" if activa else "t-rd"}">{"Activa" if activa else "Inactiva"}</span>'
-                f'</div></div>'
-                f'<div class="tc-stats">'
-                f'<div class="tc-s"><div class="tc-sv">{nu["c"] if nu else 0}</div><div class="tc-sl">Usuarios</div></div>'
-                f'<div class="tc-s"><div class="tc-sv">{"✅" if activa else "❌"}</div><div class="tc-sl">Estado</div></div>'
-                f'<div class="tc-s"><div class="tc-sv">🏪</div><div class="tc-sl">Tienda</div></div>'
-                f'</div><div class="tc-acts">'
-                f'<a href="/super/editar/{t["id"]}" class="btn bp bsm">✏️ Editar</a>'
-                f'<a href="/super/admin/{t["id"]}" class="btn bg bsm">👥 Admins</a>'
-                f'<a href="/login/{t["id"]}" target="_blank" class="btn bg bsm">🔗 Ir</a>'
-                +(f'<a href="/super/desactivar/{t["id"]}" class="btn bd bsm" onclick="return confirm(\'Desactivar?\')">Desactivar</a>'
-                  if activa else
-                  f'<a href="/super/activar/{t["id"]}" class="btn bs bsm">Activar</a>')
-                +f'<a href="/super/eliminar/{t["id"]}" class="btn bd bsm" onclick="return confirm(\'ELIMINAR {t["nombre"]}?\')">🗑️</a>'
-                f'</div></div>')
+        nu     = db_query("SELECT COUNT(*) as c FROM users WHERE tienda_id=%s",(t["id"],),fetchone=True)
+        activa = t.get("activa",1)
+        en_man = bool(t.get("en_mantenimiento",0))
+
+        tag_activa  = "t-gr" if activa else "t-rd"
+        lbl_activa  = "Activa" if activa else "Inactiva"
+        ico_activa  = "✅" if activa else "❌"
+
+        if en_man:
+            tag_man = "t-am"
+            lbl_man = "🔧 Mant."
+        else:
+            tag_man = "t-gr"
+            lbl_man = "🟢 Línea"
+
+        btn_activa = (
+            f'<a href="/super/desactivar/{t["id"]}" class="btn bd bsm" '
+            f'onclick="return confirm(\'Desactivar?\')">Desactivar</a>'
+            if activa else
+            f'<a href="/super/activar/{t["id"]}" class="btn bs bsm">Activar</a>'
+        )
+        btn_man = (
+            f'<a href="/super/mantenimiento/{t["id"]}" class="btn bs bsm" '
+            f'title="Quitar mantenimiento">{lbl_man}</a>'
+            if en_man else
+            f'<a href="/super/mantenimiento/{t["id"]}" class="btn bw2 bsm" '
+            f'title="Poner en mantenimiento">{lbl_man}</a>'
+        )
+
+        cards += (
+            f'<div class="tc" style="border-color:{t.get("color","#4f46e5")}">'
+            f'<div class="tc-top"><span class="tc-em">{t.get("emoji","🏪")}</span>'
+            f'<div class="tc-info"><h3>{t["nombre"]}</h3>'
+            f'<p>{t.get("tipo","")} &middot; {t.get("ciudad","")}</p>'
+            f'<p style="font-size:.7rem;color:var(--mt);margin-top:3px">ID: <code>{t["id"]}</code></p>'
+            f'<span class="tag {tag_activa}">{lbl_activa}</span>'
+            f'</div></div>'
+            f'<div class="tc-stats">'
+            f'<div class="tc-s"><div class="tc-sv">{nu["c"] if nu else 0}</div><div class="tc-sl">Usuarios</div></div>'
+            f'<div class="tc-s"><div class="tc-sv">{ico_activa}</div><div class="tc-sl">Estado</div></div>'
+            f'<div class="tc-s"><div class="tc-sv">🏪</div><div class="tc-sl">Tienda</div></div>'
+            f'</div><div class="tc-acts">'
+            f'<a href="/super/editar/{t["id"]}" class="btn bp bsm">✏️ Editar</a>'
+            f'<a href="/super/admin/{t["id"]}" class="btn bg bsm">👥 Admins</a>'
+            f'<a href="/login/{t["id"]}" target="_blank" class="btn bg bsm">🔗 Ir</a>'
+            f'{btn_activa}'
+            f'{btn_man}'
+            f'<a href="/super/eliminar/{t["id"]}" class="btn bd bsm" '
+            f'onclick="return confirm(\'ELIMINAR {t["nombre"]}?\')">🗑️</a>'
+            f'</div></div>'
+        )
     return base("🏪 Tiendas Registradas",(
         f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">'
         f'<p style="color:var(--mt);font-size:.84rem">{len(tiendas)} tienda(s) en el sistema</p>'
@@ -3218,6 +4263,77 @@ def super_desactivar(tid):
     if not is_sa(): return redirect("/super")
     db_query("UPDATE tiendas SET activa=0 WHERE id=%s",(tid,),commit=True); return redirect("/super/tiendas")
 
+@app.route("/super/mantenimiento/<tid>", methods=["GET","POST"])
+def super_mantenimiento(tid):
+    if not is_sa(): return redirect("/super")
+    t = db_query("SELECT * FROM tiendas WHERE id=%s", (tid,), fetchone=True)
+    if not t: return redirect("/super/tiendas")
+
+    if request.method == "POST":
+        ac  = request.form.get("ac","")
+        msg = request.form.get("msg_man","").strip()
+        if ac == "activar":
+            db_query(
+                "UPDATE tiendas SET en_mantenimiento=1, msg_mantenimiento=%s WHERE id=%s",
+                (msg or "Tienda temporalmente en mantenimiento. Vuelve pronto.", tid),
+                commit=True)
+        elif ac == "desactivar":
+            db_query(
+                "UPDATE tiendas SET en_mantenimiento=0 WHERE id=%s",
+                (tid,), commit=True)
+        return redirect("/super/tiendas")
+
+    en_man   = bool(t.get("en_mantenimiento", 0))
+    nom      = t.get("nombre","")
+    msg_act  = t.get("msg_mantenimiento","Tienda temporalmente en mantenimiento. Vuelve pronto.")
+
+    estado_html = (
+        '<div style="background:#fef2f2;border:2px solid #fecaca;border-radius:14px;'
+        'padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:12px">'
+        '<span style="font-size:1.8rem">🔧</span>'
+        '<div>'
+        '<div style="font-weight:900;color:#dc2626">En mantenimiento actualmente</div>'
+        '<div style="font-size:.8rem;color:#b91c1c;margin-top:2px">Los clientes ven la pantalla de mantenimiento</div>'
+        '</div></div>'
+        if en_man else
+        '<div style="background:#f0fdf4;border:2px solid #bbf7d0;border-radius:14px;'
+        'padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:12px">'
+        '<span style="font-size:1.8rem">🟢</span>'
+        '<div>'
+        '<div style="font-weight:900;color:#15803d">Tienda en línea y operativa</div>'
+        '<div style="font-size:.8rem;color:#166534;margin-top:2px">Los clientes pueden entrar y comprar normalmente</div>'
+        '</div></div>'
+    )
+
+    return base("🔧 Mantenimiento — " + nom, (
+        '<div class="sec" style="max-width:540px;margin:auto">'
+        '<div class="sh"><h3>🔧 Modo mantenimiento</h3>'
+        '<a href="/super/tiendas" class="btn bg bsm">← Tiendas</a></div>'
+        '<div class="sb2">'
+        '<div style="font-size:.9rem;font-weight:700;color:var(--tx);margin-bottom:16px">'
+        '🏪 ' + nom + '</div>'
+        + estado_html
+        + ('<form method="post">'
+           '<input type="hidden" name="ac" value="desactivar">'
+           '<div class="al a-i" style="margin-bottom:14px;font-size:.82rem">'
+           '¿Listo? Al desactivar, los clientes podrán entrar de nuevo.</div>'
+           '<button class="btn bs blg">🟢 Quitar mantenimiento — poner En línea</button>'
+           '</form>'
+           if en_man else
+           '<form method="post" style="display:flex;flex-direction:column;gap:14px">'
+           '<input type="hidden" name="ac" value="activar">'
+           '<div class="fg"><label>Mensaje para los clientes</label>'
+           '<textarea name="msg_man" rows="3" '
+           'placeholder="Ej: Estamos haciendo mejoras. Volvemos en 1 hora 🚀">'
+           + msg_act + '</textarea>'
+           '<span class="ph">Este texto verán los clientes cuando intenten entrar.</span></div>'
+           '<button class="btn bd blg" '
+           'onclick="return confirm(\'¿Poner en mantenimiento? Los clientes no podrán entrar.\')">'
+           '🔧 Activar mantenimiento</button>'
+           '</form>')
+        + '</div></div>'
+    ))
+
 @app.route("/super/eliminar/<tid>")
 def super_eliminar(tid):
     if not is_sa(): return redirect("/super")
@@ -3228,13 +4344,128 @@ def super_eliminar(tid):
 @app.route("/super/usuarios")
 def super_usuarios():
     if not is_sa(): return redirect("/super")
-    rows=db_query("SELECT u.*,t.nombre as tnombre,t.emoji as temoji FROM users u JOIN tiendas t ON u.tienda_id=t.id WHERE u.rol='admin' ORDER BY u.tienda_id",fetchall=True) or []
-    filas="".join(f"<tr><td>{str(u.get('temoji',''))} {str(u.get('tnombre',''))}</td><td><strong>{u['user']}</strong></td><td>{str(u.get('nombre',''))}</td><td>{str(u.get('email','-'))}</td><td><span class='tag t-pu'>admin</span></td></tr>" for u in rows)
-    return base("👥 Todos los Administradores",(
-        f'<div class="al a-i">Solo se muestran administradores. Los datos financieros de cada tienda son privados.</div>'
-        f'<div class="sec"><div class="sh"><h3>Administradores ({len(rows)})</h3></div>'
-        f'<div class="sb2"><div class="tw"><table><thead><tr><th>Tienda</th><th>Usuario</th><th>Nombre</th><th>Email</th><th>Rol</th></tr></thead>'
-        f'<tbody>{"<tr><td colspan=5 class=tmuted>Sin admins</td></tr>" if not filas else filas}</tbody></table></div></div></div>'))
+    rows = db_query(
+        "SELECT u.*, t.nombre as tnombre, t.emoji as temoji "
+        "FROM users u JOIN tiendas t ON u.tienda_id=t.id "
+        "WHERE u.rol='admin' ORDER BY u.tienda_id",
+        fetchall=True) or []
+
+    filas = ""
+    for u in rows:
+        filas += (
+            "<tr>"
+            "<td>" + str(u.get("temoji","")) + " <strong>" + str(u.get("tnombre","")) + "</strong></td>"
+            "<td><code style='font-size:.82rem'>" + str(u["user"]) + "</code></td>"
+            "<td>" + str(u.get("nombre","")) + "</td>"
+            "<td style='font-size:.8rem;color:var(--mt)'>" + str(u.get("email","-")) + "</td>"
+            "<td style='font-size:.8rem;color:var(--mt)'>" + str(u.get("telefono","-")) + "</td>"
+            "<td><span class='tag t-pu'>admin</span></td>"
+            "<td>"
+            "<a href='/super/edit_admin/" + str(u["id"]) + "' class='btn bw2 bsm'>✏️ Editar</a>"
+            "</td>"
+            "</tr>"
+        )
+
+    return base("👥 Todos los Administradores", (
+        '<div class="al a-i" style="margin-bottom:12px">'
+        'Solo se muestran administradores. Los datos financieros de cada tienda son privados.</div>'
+        '<div class="sec"><div class="sh"><h3>Administradores (' + str(len(rows)) + ')</h3></div>'
+        '<div class="sb2"><div class="tw"><table>'
+        '<thead><tr><th>Tienda</th><th>Usuario</th><th>Nombre</th>'
+        '<th>Email</th><th>Teléfono</th><th>Rol</th><th>Acciones</th></tr></thead>'
+        '<tbody>'
+        + ("<tr><td colspan=7 class='tmuted' style='text-align:center;padding:20px'>Sin admins</td></tr>"
+           if not filas else filas)
+        + '</tbody></table></div></div></div>'
+    ))
+
+
+@app.route("/super/edit_admin/<int:uid>", methods=["GET","POST"])
+def super_edit_admin(uid):
+    if not is_sa(): return redirect("/super")
+    u = db_query(
+        "SELECT u.*, t.nombre as tnombre FROM users u "
+        "JOIN tiendas t ON u.tienda_id=t.id WHERE u.id=%s",
+        (uid,), fetchone=True)
+    if not u: return redirect("/super/usuarios")
+
+    msg = ""
+    if request.method == "POST":
+        nom   = request.form.get("nombre","").strip()
+        email = request.form.get("email","").strip()
+        tel   = request.form.get("telefono","").strip().replace(" ","").replace("-","")
+        np    = request.form.get("np","").strip()
+
+        if np:
+            ok, em = ok_pass(np)
+            if not ok:
+                msg = '<div class="al a-d">❌ ' + em + '</div>'
+            else:
+                db_query(
+                    "UPDATE users SET nombre=%s, email=%s, telefono=%s, password=%s WHERE id=%s",
+                    (nom or u["nombre"], email or u.get("email",""),
+                     tel or u.get("telefono",""),
+                     generate_password_hash(np), uid), commit=True)
+                msg = '<div class="al a-s">✅ Datos y contraseña actualizados.</div>'
+        else:
+            db_query(
+                "UPDATE users SET nombre=%s, email=%s, telefono=%s WHERE id=%s",
+                (nom or u["nombre"], email or u.get("email",""),
+                 tel or u.get("telefono",""), uid), commit=True)
+            msg = '<div class="al a-s">✅ Datos actualizados.</div>'
+        u = db_query(
+            "SELECT u.*, t.nombre as tnombre FROM users u "
+            "JOIN tiendas t ON u.tienda_id=t.id WHERE u.id=%s",
+            (uid,), fetchone=True)
+
+    nom_s   = str(u.get("nombre",""))
+    email_s = str(u.get("email",""))
+    tel_s   = str(u.get("telefono",""))
+    usr_s   = str(u["user"])
+    tid_s   = str(u["tienda_id"])
+
+    return base("✏️ Editar Admin — " + nom_s, (
+        msg +
+        '<div class="sec" style="max-width:520px;margin:auto">'
+        '<div class="sh"><h3>👤 Admin: ' + usr_s + '</h3>'
+        '<a href="/super/usuarios" class="btn bg bsm">← Volver</a></div>'
+        '<div class="sb2">'
+        '<div style="background:#f8faff;border-radius:10px;padding:10px 14px;'
+        'margin-bottom:18px;font-size:.82rem;color:var(--mt)">'
+        '🏪 Tienda: <strong>' + str(u.get("tnombre","")) + '</strong>'
+        ' &nbsp;·&nbsp; Tienda ID: <code>' + tid_s + '</code>'
+        '</div>'
+        '<form method="post">'
+        '<div class="fg2">'
+        # Usuario (no editable)
+        '<div class="fg"><label>Usuario (no editable)</label>'
+        '<input type="text" value="' + usr_s + '" disabled '
+        'style="background:#f1f5f9;color:var(--mt)"></div>'
+        # Nombre — solo letras
+        '<div class="fg"><label>Nombre completo</label>'
+        '<input type="text" name="nombre" value="' + nom_s + '" '
+        'placeholder="Nombre del administrador" '
+        'oninput="this.value=this.value.replace(/[^A-Za-z\\u00C0-\\u017E\\s]/g,\'\')"></div>'
+        # Email
+        '<div class="fg"><label>Email</label>'
+        '<input type="email" name="email" value="' + email_s + '" '
+        'placeholder="admin@tienda.com"></div>'
+        # Teléfono — solo números
+        '<div class="fg"><label>📱 Teléfono (para recuperación de clave)</label>'
+        '<input type="tel" name="telefono" value="' + tel_s + '" '
+        'placeholder="3101234567" inputmode="numeric" '
+        'oninput="this.value=this.value.replace(/[^0-9]/g,\'\')"></div>'
+        # Nueva contraseña
+        '<div class="fg"><label>Nueva contraseña (dejar vacío = no cambiar)</label>'
+        '<input type="password" name="np" '
+        'placeholder="Min 8, 1 MAYÚSCULA, 1 número, 1 especial">'
+        '<span class="ph">Min 8 | 1 MAYÚSCULA | 1 número | 1 especial (!@#$%^&*)</span></div>'
+        '</div>'
+        '<div class="fr mt16">'
+        '<button class="btn bp">💾 Guardar cambios</button>'
+        '<a href="/super/usuarios" class="btn bg">Cancelar</a>'
+        '</div></form></div></div>'
+    ))
 
 # ================================================================
 #  ADMIN DASHBOARD
@@ -3252,8 +4483,20 @@ def admin():
     bajos=db_query("SELECT * FROM productos WHERE tienda_id=%s AND cantidad<=stock_min",(tid,),fetchall=True) or []
     ultimos=db_query("SELECT * FROM pedidos WHERE tienda_id=%s ORDER BY id DESC LIMIT 5",(tid,),fetchall=True) or []
     pendientes_nequi=db_query("SELECT COUNT(*) as c FROM pedidos WHERE tienda_id=%s AND pago IN ('Nequi','Daviplata') AND estado='Pendiente'",(tid,),fetchone=True)["c"]
-    al="".join(f'<div class="al a-w">⚠️ Stock bajo: <strong>{p["nombre"]}</strong> — {p["cantidad"]} {p.get("unidad","uds")}</div>' for p in bajos[:4]) or '<div class="al a-s">✅ Sin alertas de stock.</div>'
+    al="".join(
+    f'<div class="al a-w" style="align-items:center;justify-content:space-between;flex-direction:row;flex-wrap:wrap;gap:8px">'
+    f'<span>⚠️ <strong>{p["nombre"]}</strong>: {p["cantidad"]} {p.get("unidad","uds")} (mín: {p["stock_min"]})</span>'
+    f'<div class="fr" style="gap:6px">'
+    f'<a href="/inventario_emp" class="btn bw2 bsm">📥 Registrar entrada</a>'
+    + (f'<a href="/solicitar_prov/{p["id"]}" class="btn bpv bsm">🚚 Pedir a proveedor</a>'
+       if p.get("proveedor_nombre") else "")
+    + f'</div></div>'
+    for p in bajos
+) if bajos else ""
     col={"Pendiente":"t-am","Aprobado":"t-bl","En camino":"t-sk","Entregado":"t-gr","Cancelado":"t-rd","Devolucion":"t-pu"}
+    # Label visual amigable
+    lbl_estado={"Pendiente":"⏳ Pendiente por entregar","Aprobado":"✅ Aprobado","En camino":"🏍️ En camino",
+                "Entregado":"📦 Entregado","Cancelado":"❌ Cancelado","Devolucion":"🔄 Devolución"}
     filas="".join(f"<tr><td><strong>{str(p.get('codigo',''))}</strong></td><td>{str(p.get('producto',''))[:22]}</td><td>{str(p.get('user',''))}</td><td>{fmt(p.get('subtotal',0))}</td><td><span class='tag {col.get(p.get('estado',''),'t-gy')}'>{str(p.get('estado',''))}</span></td></tr>" for p in ultimos)
     nb2=f' <span class="nb">{nl}</span>' if nl else ""
     pend_pago=f'<div class="al a-w">💳 {pendientes_nequi} pedido(s) con Nequi/Daviplata pendientes de confirmar comprobante. <a href="/admin_pedidos">Ver</a></div>' if pendientes_nequi>0 else ""
@@ -3382,94 +4625,615 @@ def empleado():
 # ================================================================
 #  INVENTARIO — ADMIN
 # ================================================================
-@app.route("/inventario",methods=["GET","POST"])
+# ================================================================
+#  INVENTARIO — ADMIN (corregido sin errores f-string)
+# ================================================================
+@app.route("/inventario", methods=["GET","POST"])
 def inventario():
     if not is_ad(): return redirect("/")
-    tid=tid_now(); msg=""
-    if request.method=="POST":
-        ac=request.form.get("ac","add")
-        if ac=="add":
-            nom=request.form.get("nombre","").strip()
-            if not nom: msg='<div class="al a-d">El nombre es obligatorio.</div>'
+    tid = tid_now(); msg = ""
+
+    # ── Pre-construir opciones proveedor SIN f-string con conflicto ──
+    provs_raw = db_query(
+        "SELECT nombre FROM proveedores WHERE tienda_id=%s ORDER BY nombre",
+        (tid,), fetchall=True) or []
+    prov_opts = ""
+    for pv in provs_raw:
+        pn = pv["nombre"]
+        prov_opts += '<option value="' + pn + '">' + pn + '</option>'
+
+    if request.method == "POST":
+        ac = request.form.get("ac", "add")
+        if ac == "add":
+            nom = request.form.get("nombre", "").strip()
+            if not nom:
+                msg = '<div class="al a-d">El nombre es obligatorio.</div>'
             else:
                 try:
-                    db_query("INSERT INTO productos(tienda_id,nombre,categoria,precio,cantidad,stock_min,stock_max,unidad,img) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                             (tid,nom,request.form.get("categoria","General").strip(),
-                              float(request.form.get("precio","0")),int(request.form.get("cantidad","0")),
-                              int(request.form.get("stock_min","5")),int(request.form.get("stock_max","100")),
-                              request.form.get("unidad","unidad").strip(),
-                              request.form.get("img","").strip() or "https://images.unsplash.com/photo-1549931319-a545dcf3bc7c?w=400"),commit=True)
-                    msg='<div class="al a-s">✅ Producto agregado.</div>'
+                    img_url = (request.form.get("img", "").strip() or
+                               "https://images.unsplash.com/photo-1549931319-a545dcf3bc7c?w=400")
+                    new_id = db_query(
+                        "INSERT INTO productos(tienda_id,nombre,categoria,subcategoria,precio,"
+                        "cantidad,stock_min,stock_max,unidad,img,proveedor_nombre)"
+                        " VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (tid, nom,
+                         request.form.get("categoria", "General").strip(),
+                         request.form.get("subcategoria", "").strip(),
+                         float(request.form.get("precio", "0")),
+                         int(request.form.get("cantidad", "0")),
+                         int(request.form.get("stock_min", "5")),
+                         int(request.form.get("stock_max", "100")),
+                         request.form.get("unidad", "unidad").strip(),
+                         img_url,
+                         request.form.get("proveedor_nombre", "").strip()),
+                        commit=True)
+                    # Subida de archivo imagen
+                    f2 = request.files.get("img_file")
+                    if f2 and f2.filename and new_id:
+                        data2 = f2.read()
+                        mime2 = f2.mimetype or "image/jpeg"
+                        db_query("UPDATE productos SET img_blob=%s, img_mime=%s WHERE id=%s",
+                                 (data2, mime2, new_id), commit=True)
+                    msg = '<div class="al a-s">✅ Producto agregado.</div>'
                 except Exception as e:
-                    msg=f'<div class="al a-d">Error: {str(e)}</div>'
-        elif ac=="del_all":
-            if request.form.get("confirm_del")=="SI":
-                db_query("DELETE FROM productos WHERE tienda_id=%s",(tid,),commit=True)
-                msg='<div class="al a-s">✅ Inventario limpiado.</div>'
+                    msg = '<div class="al a-d">Error: ' + str(e) + '</div>'
+
+        elif ac == "del_all":
+            if request.form.get("confirm_del") == "SI":
+                db_query("DELETE FROM productos WHERE tienda_id=%s", (tid,), commit=True)
+                msg = '<div class="al a-s">✅ Inventario limpiado.</div>'
             else:
-                msg='<div class="al a-d">Escribe SI para confirmar.</div>'
-    prods=db_query("SELECT * FROM productos WHERE tienda_id=%s ORDER BY nombre",(tid,),fetchall=True) or []
-    filas="".join(
-        f"<tr><td><strong>{p['nombre']}</strong><br><span class='tmuted'>{p.get('categoria','')}</span></td>"
-        f"<td>{fmt(p['precio'])}</td><td>{p['cantidad']} {p.get('unidad','')}</td><td>{p.get('stock_min','-')}</td>"
-        f"<td><span class='tag {'t-rd' if p['cantidad']<=p.get('stock_min',5) else 't-gr'}'>{'Bajo' if p['cantidad']<=p.get('stock_min',5) else 'OK'}</span></td>"
-        f"<td class='fr'><a href='/edit/{p['id']}' class='btn bw2 bsm'>Editar</a>"
-        f"<a href='/del_prod/{p['id']}' class='btn bd bsm' onclick=\"return confirm('Eliminar {p['nombre'].replace(chr(39),'')}?')\">Eliminar</a></td></tr>"
-        for p in prods)
-    return base("📦 Inventario",(
-        f'<div class="sec"><div class="sh"><h3>Agregar Producto</h3></div><div class="sb2">{msg}'
-        f'<form method="post"><input type="hidden" name="ac" value="add"><div class="fg2">'
-        f'<div class="fg"><label>Nombre *</label><input type="text" name="nombre" placeholder="Pan Francés" required></div>'
-        f'<div class="fg"><label>Categoría</label><input type="text" name="categoria" placeholder="Panaderia"></div>'
-        f'<div class="fg"><label>Precio (COP) *</label><input type="number" name="precio" placeholder="5000" min="0" required></div>'
-        f'<div class="fg"><label>Stock Inicial *</label><input type="number" name="cantidad" placeholder="50" min="0" required></div>'
-        f'<div class="fg"><label>Stock Mínimo</label><input type="number" name="stock_min" value="5" min="0"></div>'
-        f'<div class="fg"><label>Stock Máximo</label><input type="number" name="stock_max" value="100" min="0"></div>'
-        f'<div class="fg"><label>Unidad</label><input type="text" name="unidad" placeholder="unidad/kg/litro"></div>'
-        f'<div class="fg"><label>URL Imagen</label><input type="url" name="img" placeholder="https://..."></div>'
-        f'</div><div class="mt16"><button class="btn bp">💾 Guardar Producto</button></div></form></div></div>'
-        f'<div class="sec"><div class="sh"><h3>Productos ({len(prods)})</h3>'
-        f'<a href="/exportar_pdf/inventario" class="btn bg bsm">📄 Exportar PDF</a></div>'
-        f'<div class="sb2"><div class="tw"><table>'
-        f'<thead><tr><th>Nombre</th><th>Precio</th><th>Stock</th><th>Min</th><th>Estado</th><th>Acciones</th></tr></thead>'
-        f'<tbody>{"<tr><td colspan=6 class=tmuted>Sin productos</td></tr>" if not filas else filas}</tbody></table></div>'
-        f'<details style="margin-top:16px"><summary style="cursor:pointer;color:var(--dn);font-size:.8rem;font-weight:700">🗑️ Limpiar todo el inventario</summary>'
-        f'<form method="post" style="margin-top:10px;display:flex;gap:10px;align-items:center"><input type="hidden" name="ac" value="del_all">'
-        f'<input type="text" name="confirm_del" placeholder="Escribe SI para confirmar" style="max-width:250px">'
-        f'<button class="btn bd">Eliminar todo</button></form></details></div></div>'))
+                msg = '<div class="al a-d">Escribe SI para confirmar.</div>'
 
+    # ── Filtros ───────────────────────────────────────────────────
+    f_cat    = request.args.get("cat", "")
+    f_alerta = request.args.get("alerta", "")
+    prods_all = db_query(
+        "SELECT * FROM productos WHERE tienda_id=%s ORDER BY categoria, nombre",
+        (tid,), fetchall=True) or []
 
-@app.route("/edit/<int:pid>",methods=["GET","POST"])
+    bajo_stock = [p for p in prods_all if 0 < p["cantidad"] <= p.get("stock_min", 5)]
+    sin_stock  = [p for p in prods_all if p["cantidad"] == 0]
+    cats       = sorted(set(p.get("categoria", "General") for p in prods_all if p.get("categoria")))
+
+    prods = prods_all
+    if f_cat:             prods = [p for p in prods if p.get("categoria", "") == f_cat]
+    if f_alerta == "bajo": prods = [p for p in prods if 0 < p["cantidad"] <= p.get("stock_min", 5)]
+    elif f_alerta == "sin": prods = [p for p in prods if p["cantidad"] == 0]
+
+    # ── KPIs ─────────────────────────────────────────────────────
+    tot_val = sum(float(p["precio"]) * p["cantidad"] for p in prods_all)
+    kpis = (
+        '<div class="kg" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">'
+        '<div class="kc k-bl"><div class="ki">📦</div><div class="kl">Productos</div>'
+        '<div class="kv">' + str(len(prods_all)) + '</div></div>'
+        '<div class="kc k-rd"><div class="ki">🚨</div><div class="kl">Sin stock</div>'
+        '<div class="kv">' + str(len(sin_stock)) + '</div></div>'
+        '<div class="kc k-am"><div class="ki">⚠️</div><div class="kl">Stock bajo</div>'
+        '<div class="kv">' + str(len(bajo_stock)) + '</div></div>'
+        '<div class="kc k-gr"><div class="ki">💰</div><div class="kl">Valor inventario</div>'
+        '<div class="kv" style="font-size:.9rem">' + fmt(tot_val) + '</div></div>'
+        '</div>'
+    )
+
+    # ── Alertas ───────────────────────────────────────────────────
+    alertas_html = ""
+    if sin_stock:
+        nombres_sin = ", ".join(p["nombre"] for p in sin_stock[:4])
+        mas_sin = "..." if len(sin_stock) > 4 else ""
+        alertas_html += (
+            '<div class="al a-d" style="align-items:center;justify-content:space-between;'
+            'flex-direction:row;flex-wrap:wrap;gap:8px;margin-bottom:8px">'
+            '<span>🚨 <strong>' + str(len(sin_stock)) + ' sin stock:</strong> '
+            + nombres_sin + mas_sin + '</span>'
+            '<a href="/inventario?alerta=sin" class="btn bd bsm">Ver</a></div>'
+        )
+    if bajo_stock:
+        nombres_baj = ", ".join(p["nombre"] for p in bajo_stock[:4])
+        mas_baj = "..." if len(bajo_stock) > 4 else ""
+        alertas_html += (
+            '<div class="al a-w" style="align-items:center;justify-content:space-between;'
+            'flex-direction:row;flex-wrap:wrap;gap:8px;margin-bottom:8px">'
+            '<span>⚠️ <strong>' + str(len(bajo_stock)) + ' stock bajo:</strong> '
+            + nombres_baj + mas_baj + '</span>'
+            '<a href="/inventario?alerta=bajo" class="btn bw2 bsm">Ver</a></div>'
+        )
+
+    # ── Chips de categorías ───────────────────────────────────────
+    chip_todas = "bp" if (not f_cat and not f_alerta) else "bg"
+    cat_chips  = ('<a href="/inventario" class="btn ' + chip_todas + ' bsm">'
+                  'Todas (' + str(len(prods_all)) + ')</a> ')
+    for cat in cats:
+        n_cat    = sum(1 for p in prods_all if p.get("categoria", "") == cat)
+        chip_cls = "bp" if f_cat == cat else "bg"
+        cat_chips += ('<a href="/inventario?cat=' + cat + '" class="btn ' + chip_cls + ' bsm">'
+                      + cat + ' (' + str(n_cat) + ')</a> ')
+    chip_sin = "bd" if f_alerta == "sin" else "bg"
+    chip_baj = "bw2" if f_alerta == "bajo" else "bg"
+    cat_chips += ('<a href="/inventario?alerta=sin" class="btn ' + chip_sin + ' bsm">'
+                  '🚨 Sin stock (' + str(len(sin_stock)) + ')</a> ')
+    cat_chips += ('<a href="/inventario?alerta=bajo" class="btn ' + chip_baj + ' bsm">'
+                  '⚠️ Bajo (' + str(len(bajo_stock)) + ')</a>')
+
+    # ── Construir opciones de categoría para datalist ─────────────
+    cat_datalist = ""
+    for c in cats:
+        cat_datalist += '<option value="' + c + '">'
+
+    # ── Agrupar por categoría ─────────────────────────────────────
+    grupos = {}
+    for p in prods:
+        cat = p.get("categoria", "General") or "General"
+        grupos.setdefault(cat, []).append(p)
+
+    CAT_ICONOS = {
+        "Panaderia": "🥐", "Panadería": "🥐", "Bebidas": "🥤",
+        "Granos": "🌾",  "Aseo": "🧹",        "Insumos": "🏭",
+        "Frutas": "🍎",  "Verduras": "🥦",     "Carnes": "🥩",
+        "Lacteos": "🧀", "Lácteos": "🧀",      "Snacks": "🍿",
+        "Dulces": "🍬",  "Condimentos": "🌶️",  "Aceites": "🫙",
+        "General": "🛒",
+    }
+
+    # ── Tarjetas agrupadas ────────────────────────────────────────
+    tarjetas_html = ""
+    for cat, items in grupos.items():
+        ico_cat  = CAT_ICONOS.get(cat, "📦")
+        cards_cat = ""
+
+        for p in items:
+            cant     = p["cantidad"]
+            smin     = p.get("stock_min", 5)
+            smax     = p.get("stock_max", 100)
+            vendidos = p.get("cantidad_vendida", 0)
+            unidad   = p.get("unidad", "u")
+            sub      = p.get("subcategoria", "")
+            prov     = p.get("proveedor_nombre", "")
+            has_blob = bool(p.get("img_blob"))
+            pid_str  = str(p["id"])
+            nom_safe = p["nombre"].replace("'", "")
+            img_src  = ("/img_prod/" + pid_str) if has_blob else (
+                       p.get("img") or
+                       "https://images.unsplash.com/photo-1549931319-a545dcf3bc7c?w=400")
+
+            # Estado
+            if cant == 0:
+                est_c = "#fef2f2"; est_b = "#fecaca"; est_t = "#dc2626"
+                est_ico = "🚨"; est_lbl = "Sin stock"
+                prov_btn = ('<a href="/solicitar_prov/' + pid_str + '" '
+                            'class="btn bd bsm" style="font-size:.7rem">🚚 Pedir proveedor</a>')
+            elif cant <= smin:
+                est_c = "#fffbeb"; est_b = "#fde68a"; est_t = "#d97706"
+                est_ico = "⚠️"; est_lbl = "Bajo (" + str(cant) + ")"
+                prov_btn = ('<a href="/solicitar_prov/' + pid_str + '" '
+                            'class="btn bw2 bsm" style="font-size:.7rem">🚚 Pedir proveedor</a>')
+            else:
+                est_c = "#f0fdf4"; est_b = "#bbf7d0"; est_t = "#15803d"
+                est_ico = "✅"; est_lbl = "OK (" + str(cant) + ")"
+                prov_btn = ""
+
+            pct       = min(100, int(cant / max(smax, 1) * 100))
+            bar_color = "#dc2626" if cant == 0 else ("#f59e0b" if cant <= smin else "#22c55e")
+
+            # HTML opcionales
+            sub_html  = ""
+            if sub:
+                sub_html = (
+                    '<div style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,.6);'
+                    'border-radius:99px;padding:2px 8px;font-size:.62rem;color:#fff">'
+                    + sub + '</div>')
+            prov_html = ""
+            if prov:
+                prov_html = (
+                    '<div style="font-size:.72rem;color:var(--mt);margin-bottom:6px">'
+                    '📦 ' + prov + '</div>')
+
+            cards_cat += (
+                '<div style="background:var(--card);border:1px solid var(--bd);border-radius:16px;'
+                'overflow:hidden;transition:all .2s;box-shadow:0 1px 4px rgba(0,0,0,.05)" '
+                'onmouseover="this.style.boxShadow=\'0 6px 24px rgba(79,70,229,.13)\';this.style.transform=\'translateY(-2px)\'" '
+                'onmouseout="this.style.boxShadow=\'0 1px 4px rgba(0,0,0,.05)\';this.style.transform=\'\'">'
+                # imagen
+                '<div style="position:relative;height:130px;overflow:hidden;background:#f8faff">'
+                '<img src="' + img_src + '" alt="' + nom_safe + '" loading="lazy" '
+                'style="width:100%;height:100%;object-fit:cover" '
+                'onerror="this.src=\'https://images.unsplash.com/photo-1549931319-a545dcf3bc7c?w=400\'">'
+                '<div style="position:absolute;top:8px;right:8px;background:' + est_c + ';'
+                'border:1px solid ' + est_b + ';border-radius:99px;padding:3px 9px;'
+                'font-size:.65rem;font-weight:800;color:' + est_t + '">'
+                + est_ico + " " + est_lbl + '</div>'
+                + sub_html +
+                '</div>'
+                # cuerpo
+                '<div style="padding:12px 14px">'
+                '<div style="font-weight:900;font-size:.92rem;margin-bottom:4px">' + p["nombre"] + '</div>'
+                + prov_html +
+                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+                '<div style="font-size:1.05rem;font-weight:900;color:var(--sc)">' + fmt(p["precio"]) + '</div>'
+                '<div style="font-size:.72rem;color:var(--mt)">'
+                + unidad + ' · vendidos: <strong>' + str(vendidos) + '</strong></div>'
+                '</div>'
+                # barra stock
+                '<div style="margin-bottom:10px">'
+                '<div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--mt);margin-bottom:3px">'
+                '<span>Stock: ' + str(cant) + '/' + str(smax) + '</span>'
+                '<span>Mín: ' + str(smin) + '</span></div>'
+                '<div style="background:#f1f5f9;border-radius:99px;height:5px;overflow:hidden">'
+                '<div style="height:100%;border-radius:99px;background:' + bar_color + ';'
+                'width:' + str(pct) + '%"></div></div></div>'
+                # acciones
+                '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+                '<a href="/edit/' + pid_str + '" class="btn bw2 bsm" style="flex:1;text-align:center">✏️ Editar</a>'
+                + prov_btn +
+                '<a href="/del_prod/' + pid_str + '" class="btn bd bsm" '
+                'onclick="return confirm(\'Eliminar ' + nom_safe + '?\')">🗑️</a>'
+                '</div></div></div>'
+            )
+
+        tarjetas_html += (
+            '<div style="margin-bottom:28px">'
+            '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'
+            '<div style="font-size:.68rem;font-weight:900;text-transform:uppercase;letter-spacing:.12em;'
+            'color:var(--pr);padding:4px 12px;background:rgba(79,70,229,.08);'
+            'border-radius:99px;border:1px solid rgba(79,70,229,.2)">'
+            + ico_cat + " " + cat + '</div>'
+            '<div style="font-size:.72rem;color:var(--mt)">' + str(len(items)) + ' producto(s)</div>'
+            '</div>'
+            '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">'
+            + cards_cat +
+            '</div></div>'
+        )
+
+    if not prods:
+        tarjetas_html = (
+            '<div style="text-align:center;padding:48px;color:var(--mt)">'
+            '<div style="font-size:3rem">📭</div>'
+            '<p style="margin-top:12px">No hay productos con este filtro.</p>'
+            '<a href="/inventario" class="btn bp" style="margin-top:16px;display:inline-block">Ver todos</a>'
+            '</div>'
+        )
+
+    # ── HTML final ────────────────────────────────────────────────
+    return base("📦 Inventario", (
+        kpis +
+        alertas_html +
+        # Formulario agregar
+        '<div class="sec"><div class="sh"><h3>➕ Agregar Producto</h3>'
+        '<button type="button" class="btn bg bsm" '
+        'onclick="var f=document.getElementById(\'form-add\'); f.style.display=f.style.display===\'none\'?\'block\':\'none\'">Mostrar/Ocultar</button>'
+        '</div>'
+        '<div id="form-add" style="display:none"><div class="sb2">' + msg +
+        '<form method="post" enctype="multipart/form-data">'
+        '<input type="hidden" name="ac" value="add">'
+        '<div class="fg2">'
+        '<div class="fg"><label>Nombre *</label>'
+        '<input type="text" name="nombre" required placeholder="Ej: Pan Francés"></div>'
+        '<div class="fg"><label>Categoría</label>'
+        '<input type="text" name="categoria" placeholder="Panaderia, Bebidas..." list="inv-cat-dl">'
+        '<datalist id="inv-cat-dl">' + cat_datalist + '</datalist></div>'
+        '<div class="fg"><label>Subcategoría</label>'
+        '<input type="text" name="subcategoria" placeholder="Opcional: Tortas, Bollos..."></div>'
+        '<div class="fg"><label>Proveedor</label>'
+        '<input type="text" name="proveedor_nombre" list="inv-prov-dl" placeholder="Nombre del proveedor">'
+        '<datalist id="inv-prov-dl">' + prov_opts + '</datalist></div>'
+        '<div class="fg"><label>Precio (COP) *</label>'
+        '<input type="number" name="precio" min="0" step="any" required placeholder="5000"></div>'
+        '<div class="fg"><label>Stock Inicial *</label>'
+        '<input type="number" name="cantidad" min="0" required placeholder="50"></div>'
+        '<div class="fg"><label>Stock Mínimo (alerta)</label>'
+        '<input type="number" name="stock_min" value="5" min="0"></div>'
+        '<div class="fg"><label>Stock Máximo</label>'
+        '<input type="number" name="stock_max" value="100" min="0"></div>'
+        '<div class="fg"><label>Unidad</label>'
+        '<input type="text" name="unidad" placeholder="unidad / kg / litro"></div>'
+        '<div class="fg"><label>📸 Imagen del producto</label>'
+        '<input type="file" name="img_file" accept="image/*" '
+        'style="padding:8px;border:1.5px dashed var(--bd);border-radius:10px;width:100%;margin-bottom:6px">'
+        '<input type="url" name="img" placeholder="O pega URL de imagen (opcional)">'
+        '</div>'
+        '</div>'
+        '<div class="mt16"><button class="btn bp">💾 Guardar Producto</button></div>'
+        '</form></div></div></div>'
+        # Lista de productos
+        '<div class="sec"><div class="sh">'
+        '<h3>Productos (' + str(len(prods)) + ' de ' + str(len(prods_all)) + ')</h3>'
+        '<a href="/exportar_pdf/inventario" class="btn bg bsm">📊 Exportar</a>'
+        '</div>'
+        '<div class="sb2">'
+        '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">' + cat_chips + '</div>'
+        + tarjetas_html +
+        '<details style="margin-top:20px">'
+        '<summary style="cursor:pointer;color:var(--dn);font-size:.8rem;font-weight:700">'
+        '🗑️ Limpiar todo el inventario</summary>'
+        '<form method="post" style="margin-top:10px;display:flex;gap:10px;align-items:center">'
+        '<input type="hidden" name="ac" value="del_all">'
+        '<input type="text" name="confirm_del" placeholder="Escribe SI para confirmar" style="max-width:240px">'
+        '<button class="btn bd">Eliminar todo</button></form></details>'
+        '</div></div>'
+    ))
+@app.route("/edit/<int:pid>", methods=["GET","POST"])
 def edit(pid):
     if not is_ad(): return redirect("/")
-    tid=tid_now()
-    p=db_query("SELECT * FROM productos WHERE id=%s AND tienda_id=%s",(pid,tid),fetchone=True)
+    tid = tid_now()
+    p   = db_query("SELECT * FROM productos WHERE id=%s AND tienda_id=%s",
+                   (pid, tid), fetchone=True)
     if not p: return redirect("/inventario")
-    if request.method=="POST":
-        db_query("UPDATE productos SET nombre=%s,categoria=%s,precio=%s,cantidad=%s,stock_min=%s,stock_max=%s,unidad=%s,img=%s WHERE id=%s",
-                 (request.form.get("nombre",p["nombre"]).strip(),request.form.get("categoria",p.get("categoria","")).strip(),
-                  float(request.form.get("precio",p["precio"])),int(request.form.get("cantidad",p["cantidad"])),
-                  int(request.form.get("stock_min",p.get("stock_min",5))),int(request.form.get("stock_max",p.get("stock_max",100))),
-                  request.form.get("unidad",p.get("unidad","")).strip(),request.form.get("img",p.get("img","")).strip(),pid),commit=True)
+
+    # Pre-construir opciones SIN backslash en f-string
+    provs_raw = db_query(
+        "SELECT nombre FROM proveedores WHERE tienda_id=%s ORDER BY nombre",
+        (tid,), fetchall=True) or []
+    prov_opts = ""
+    for pv in provs_raw:
+        pn = pv["nombre"]
+        prov_opts += '<option value="' + pn + '">' + pn + '</option>'
+
+    cats_raw = db_query(
+        "SELECT DISTINCT categoria FROM productos WHERE tienda_id=%s",
+        (tid,), fetchall=True) or []
+    cat_datalist = ""
+    for c in cats_raw:
+        cv = c.get("categoria", "")
+        if cv:
+            cat_datalist += '<option value="' + cv + '">'
+
+    if request.method == "POST":
+        img_url = request.form.get("img", p.get("img", "")).strip()
+        db_query(
+            "UPDATE productos SET nombre=%s, categoria=%s, subcategoria=%s, precio=%s,"
+            "cantidad=%s, stock_min=%s, stock_max=%s, unidad=%s, img=%s, proveedor_nombre=%s"
+            " WHERE id=%s",
+            (request.form.get("nombre",   p["nombre"]).strip(),
+             request.form.get("categoria", p.get("categoria", "")).strip(),
+             request.form.get("subcategoria", p.get("subcategoria", "")).strip(),
+             float(request.form.get("precio",    p["precio"])),
+             int(request.form.get("cantidad",    p["cantidad"])),
+             int(request.form.get("stock_min",   p.get("stock_min", 5))),
+             int(request.form.get("stock_max",   p.get("stock_max", 100))),
+             request.form.get("unidad",           p.get("unidad", "")).strip(),
+             img_url or p.get("img", ""),
+             request.form.get("proveedor_nombre", p.get("proveedor_nombre", "")).strip(),
+             pid), commit=True)
+        # Imagen archivo
+        f2 = request.files.get("img_file")
+        if f2 and f2.filename:
+            data2 = f2.read()
+            mime2 = f2.mimetype or "image/jpeg"
+            db_query("UPDATE productos SET img_blob=%s, img_mime=%s WHERE id=%s",
+                     (data2, mime2, pid), commit=True)
         return redirect("/inventario")
-    return base(f'✏️ Editar: {p["nombre"]}',(
-        f'<div class="sec" style="max-width:520px;margin:auto"><div class="sh"><h3>{p["nombre"]}</h3></div><div class="sb2">'
-        f'<form method="post"><div class="fg2">'
-        f'<div class="fg"><label>Nombre</label><input type="text" name="nombre" value="{p["nombre"]}" required></div>'
-        f'<div class="fg"><label>Categoría</label><input type="text" name="categoria" value="{str(p.get("categoria",""))}"></div>'
-        f'<div class="fg"><label>Precio</label><input type="number" name="precio" value="{p["precio"]}" required></div>'
-        f'<div class="fg"><label>Stock Actual</label><input type="number" name="cantidad" value="{p["cantidad"]}" required></div>'
-        f'<div class="fg"><label>Stock Min</label><input type="number" name="stock_min" value="{p.get("stock_min",5)}"></div>'
-        f'<div class="fg"><label>Stock Max</label><input type="number" name="stock_max" value="{p.get("stock_max",100)}"></div>'
-        f'<div class="fg"><label>Unidad</label><input type="text" name="unidad" value="{str(p.get("unidad",""))}"></div>'
-        f'<div class="fg"><label>URL Imagen</label><input type="url" name="img" value="{str(p.get("img",""))}"></div>'
-        f'</div><div class="fr mt16"><button class="btn bs">💾 Guardar</button><a href="/inventario" class="btn bg">Cancelar</a></div></form></div></div>'))
+
+    # Valores seguros para HTML
+    nom         = p["nombre"]
+    cat_val     = p.get("categoria", "")
+    sub_val     = p.get("subcategoria", "")
+    prov_val    = p.get("proveedor_nombre", "")
+    precio_val  = str(p["precio"])
+    cant_val    = str(p["cantidad"])
+    smin_val    = str(p.get("stock_min", 5))
+    smax_val    = str(p.get("stock_max", 100))
+    unidad_val  = p.get("unidad", "")
+    img_val     = p.get("img", "")
+    vendidos    = str(p.get("cantidad_vendida", 0))
+    has_blob    = bool(p.get("img_blob"))
+    pid_str     = str(pid)
+    img_prev    = ("/img_prod/" + pid_str) if has_blob else img_val
+    cant_int    = p["cantidad"]
+    smin_int    = p.get("stock_min", 5)
+    bajo        = cant_int <= smin_int
+
+    img_preview_html = ""
+    if img_prev:
+        tipo_img = "archivo" if has_blob else "URL"
+        img_preview_html = (
+            '<div style="margin-bottom:10px;display:flex;align-items:center;gap:12px">'
+            '<img src="' + img_prev + '" '
+            'style="max-width:100px;max-height:70px;object-fit:cover;'
+            'border-radius:10px;border:1px solid var(--bd)" '
+            'onerror="this.style.display=\'none\'">'
+            '<span style="font-size:.72rem;color:var(--mt)">Imagen actual (' + tipo_img + ')</span>'
+            '</div>'
+        )
+
+    prov_btn_html = ""
+    if bajo:
+        prov_btn_html = (
+            '<a href="/solicitar_prov/' + pid_str + '" class="btn bw2">🚚 Pedir proveedor</a>'
+        )
+
+    return base("✏️ Editar: " + nom, (
+        '<div class="sec" style="max-width:560px;margin:auto">'
+        '<div class="sh"><h3>✏️ ' + nom + '</h3>'
+        '<a href="/inventario" class="btn bg bsm">← Inventario</a></div>'
+        '<div class="sb2">'
+        '<form method="post" enctype="multipart/form-data">'
+        '<div class="fg2">'
+        '<div class="fg"><label>Nombre *</label>'
+        '<input type="text" name="nombre" value="' + nom + '" required></div>'
+        '<div class="fg"><label>Categoría</label>'
+        '<input type="text" name="categoria" value="' + cat_val + '" list="edit-cat-dl">'
+        '<datalist id="edit-cat-dl">' + cat_datalist + '</datalist></div>'
+        '<div class="fg"><label>Subcategoría</label>'
+        '<input type="text" name="subcategoria" value="' + sub_val + '"></div>'
+        '<div class="fg"><label>Proveedor</label>'
+        '<input type="text" name="proveedor_nombre" value="' + prov_val + '" list="edit-prov-dl">'
+        '<datalist id="edit-prov-dl">' + prov_opts + '</datalist></div>'
+        '<div class="fg"><label>Precio (COP) *</label>'
+        '<input type="number" name="precio" value="' + precio_val + '" step="any" required></div>'
+        '<div class="fg"><label>Stock Actual</label>'
+        '<input type="number" name="cantidad" value="' + cant_val + '" required></div>'
+        '<div class="fg"><label>Stock Mínimo</label>'
+        '<input type="number" name="stock_min" value="' + smin_val + '"></div>'
+        '<div class="fg"><label>Stock Máximo</label>'
+        '<input type="number" name="stock_max" value="' + smax_val + '"></div>'
+        '<div class="fg"><label>Unidad</label>'
+        '<input type="text" name="unidad" value="' + unidad_val + '"></div>'
+        '<div class="fg"><label>📸 Imagen</label>'
+        + img_preview_html +
+        '<input type="file" name="img_file" accept="image/*" '
+        'style="padding:8px;border:1.5px dashed var(--bd);border-radius:10px;width:100%;margin-bottom:6px">'
+        '<input type="url" name="img" value="' + img_val + '" '
+        'placeholder="O pega URL (opcional)">'
+        '</div>'
+        '<div style="background:#f8faff;border-radius:10px;padding:10px;font-size:.82rem;color:var(--mt)">'
+        '📊 Cantidad vendida: <strong style="color:var(--pr)">' + vendidos + '</strong> unidades'
+        '</div>'
+        '</div>'
+        '<div class="fr mt16">'
+        '<button class="btn bs">💾 Guardar Cambios</button>'
+        '<a href="/inventario" class="btn bg">Cancelar</a>'
+        + prov_btn_html +
+        '</div></form></div></div>'
+    ))
 
 @app.route("/del_prod/<int:pid>")
 def del_prod(pid):
     if not is_ad(): return redirect("/")
     db_query("DELETE FROM productos WHERE id=%s AND tienda_id=%s",(pid,tid_now()),commit=True); return redirect("/inventario")
 
+# ================================================================
+#  SUBIDA DE IMAGEN — Producto
+# ================================================================
+@app.route("/subir_img_prod/<int:pid>", methods=["POST"])
+def subir_img_prod(pid):
+    if not is_ad(): return redirect("/")
+    tid = tid_now()
+    f = request.files.get("img_file")
+    if f and f.filename:
+        data  = f.read()
+        mime  = f.mimetype or "image/jpeg"
+        # Guardar blob en BD
+        db_query(
+            "UPDATE productos SET img_blob=%s, img_mime=%s WHERE id=%s AND tienda_id=%s",
+            (data, mime, pid, tid), commit=True)
+    return redirect("/inventario")
+
+
+@app.route("/img_prod/<int:pid>")
+def img_prod(pid):
+    """Sirve imagen de producto desde BD (blob)."""
+    row = db_query(
+        "SELECT img_blob, img_mime FROM productos WHERE id=%s",
+        (pid,), fetchone=True)
+    if row and row.get("img_blob"):
+        buf = io.BytesIO(row["img_blob"])
+        return send_file(buf, mimetype=row.get("img_mime","image/jpeg"))
+    # Fallback a imagen externa
+    p = db_query("SELECT img FROM productos WHERE id=%s", (pid,), fetchone=True)
+    img_url = (p.get("img") if p else None) or "https://images.unsplash.com/photo-1549931319-a545dcf3bc7c?w=400"
+    return redirect(img_url)
+
+@app.route("/solicitar_prov/<int:prod_id>", methods=["GET","POST"])
+def solicitar_prov(prod_id):
+    if not is_ad(): return redirect("/")
+    tid = tid_now()
+    p   = db_query("SELECT * FROM productos WHERE id=%s AND tienda_id=%s",
+                   (prod_id, tid), fetchone=True)
+    if not p: return redirect("/inventario")
+
+    prov_nombre = p.get("proveedor_nombre","").strip()
+    prov_data   = None
+    if prov_nombre:
+        prov_data = db_query(
+            "SELECT * FROM proveedores WHERE tienda_id=%s AND nombre LIKE %s ORDER BY id DESC LIMIT 1",
+            (tid, "%" + prov_nombre + "%"), fetchone=True)
+
+    provs_list = db_query(
+        "SELECT DISTINCT nombre, contacto, telefono_prov FROM proveedores WHERE tienda_id=%s ORDER BY nombre",
+        (tid,), fetchall=True) or []
+
+    msg = ""
+    if request.method == "POST":
+        nom_prov = request.form.get("prov_nombre","").strip()
+        cant_sol = request.form.get("cantidad","1")
+        cond     = request.form.get("condicion","").strip() or "Pago contra entrega"
+        contacto = request.form.get("contacto","").strip()
+        tel_prov = request.form.get("tel_prov","").strip()
+        db_query(
+            "INSERT INTO proveedores(tienda_id,nombre,contacto,telefono_prov,producto,"
+            "cantidad,precio_unit,condicion,estado,fecha) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,'Solicitado',%s)",
+            (tid, nom_prov, contacto, tel_prov,
+             p["nombre"], cant_sol, float(p.get("precio",0)),
+             cond, now()), commit=True)
+        db_query(
+            "INSERT INTO notificaciones(tienda_id,mensaje,leida,fecha) VALUES(%s,%s,0,%s)",
+            (tid, "🚚 Solicitud: " + p["nombre"] + " — " + cant_sol + " uds a " + nom_prov, now()),
+            commit=True)
+        return redirect("/proveedores")
+
+    cant_sugerida = max(p.get("stock_max",100) - p.get("cantidad",0), 10)
+
+    # ── Pre-construir opciones FUERA del f-string ──────────────────
+    provs_opts = ""
+    for pv in provs_list:
+        pv_nom  = pv["nombre"]
+        pv_tel  = pv.get("telefono_prov","")
+        pv_cont = pv.get("contacto","")
+        provs_opts += (
+            '<option value="' + pv_nom + '" '
+            'data-tel="' + pv_tel + '" '
+            'data-cont="' + pv_cont + '">'
+            + pv_nom + '</option>'
+        )
+
+    prov_val  = prov_nombre
+    cont_val  = prov_data.get("contacto","") if prov_data else ""
+    tel_val   = prov_data.get("telefono_prov","") if prov_data else ""
+    prod_nom  = p["nombre"]
+    prod_cant = p["cantidad"]
+    prod_uds  = p.get("unidad","uds")
+    prod_smin = p.get("stock_min",5)
+    prod_smax = p.get("stock_max",100)
+    alerta_ico = "🚨" if prod_cant == 0 else "⚠️"
+
+    return base("🚚 Solicitar Abastecimiento — " + prod_nom, (
+        '<div class="sec" style="max-width:560px;margin:auto">'
+        '<div class="sh"><h3>📦 ' + prod_nom + '</h3>'
+        '<a href="/inventario" class="btn bg bsm">← Inventario</a></div>'
+        '<div class="sb2">'
+        '<div style="background:linear-gradient(135deg,#fef9ec,#fff7ed);border-radius:12px;'
+        'padding:14px 18px;margin-bottom:20px;border-left:4px solid #f59e0b">'
+        '<div style="display:flex;justify-content:space-between;align-items:center">'
+        '<div>'
+        '<div style="font-size:.7rem;font-weight:800;color:#92400e;text-transform:uppercase">Stock actual</div>'
+        '<div style="font-size:1.8rem;font-weight:900;color:#d97706">'
+        + str(prod_cant) + " " + prod_uds +
+        '</div>'
+        '<div style="font-size:.75rem;color:#92400e">Mínimo: ' + str(prod_smin) +
+        ' · Máximo: ' + str(prod_smax) + '</div>'
+        '</div>'
+        '<div style="font-size:3rem">' + alerta_ico + '</div>'
+        '</div></div>'
+        '<form method="post" style="display:flex;flex-direction:column;gap:14px">'
+        '<div class="fg"><label>Proveedor *</label>'
+        '<input type="text" name="prov_nombre" id="sp-prov" required '
+        'value="' + prov_val + '" placeholder="Nombre del proveedor" list="sp-plist">'
+        '<datalist id="sp-plist">' + provs_opts + '</datalist></div>'
+        '<div class="fg"><label>Contacto</label>'
+        '<input type="text" name="contacto" id="sp-cont" placeholder="Nombre del contacto" '
+        'value="' + cont_val + '"></div>'
+        '<div class="fg"><label>Teléfono proveedor</label>'
+        '<input type="tel" name="tel_prov" id="sp-tel" placeholder="3101234567" '
+        'value="' + tel_val + '"></div>'
+        '<div class="fg"><label>Cantidad a solicitar *</label>'
+        '<input type="number" name="cantidad" value="' + str(cant_sugerida) + '" min="1" required>'
+        '<span class="ph">Sugerido para llenar al máximo: ' + str(cant_sugerida) + ' ' + prod_uds + '</span></div>'
+        '<div class="fg"><label>Condición de pago</label>'
+        '<input type="text" name="condicion" placeholder="Pago contra entrega" value="Pago contra entrega"></div>'
+        '<button class="btn bp blg">📤 Enviar solicitud al proveedor</button>'
+        '</form>'
+        '</div></div>'
+        '<script>'
+        'var provData={};'
+        'document.querySelectorAll("#sp-plist option").forEach(function(o){'
+        '  provData[o.value]={tel:o.dataset.tel||"",cont:o.dataset.cont||""};});'
+        'document.getElementById("sp-prov").addEventListener("change",function(){'
+        '  var d=provData[this.value]||{};'
+        '  if(d.tel)document.getElementById("sp-tel").value=d.tel;'
+        '  if(d.cont)document.getElementById("sp-cont").value=d.cont;'
+        '});'
+        '</script>'
+    ))
 # ================================================================
 #  INVENTARIO EMPLEADO — con merma de stock
 # ================================================================
@@ -3515,33 +5279,34 @@ def inventario_emp():
         f'<div class="fg"><label>Cantidad</label><input type="number" name="cant" min="1" required></div>'
         f'<div class="fg"><label>Motivo / Observación</label><input type="text" name="motivo" placeholder="Describe el movimiento"></div>'
         f'</div><div class="mt16"><button class="btn bp">✅ Registrar</button></div></form></div></div>'
-        f'<div class="sec"><div class="sh"><h3>Historial Reciente</h3><a href="/exportar_pdf/movimientos" class="btn bg bsm">📄 Exportar PDF</a></div>'
+        f'<div class="sec"><div class="sh"><h3>Historial Reciente</h3><a href="/exportar_pdf/movimientos" class="btn bg bsm">📄 Exportar  Factura</a></div>'
         f'<div class="sb2"><div class="tw"><table><thead><tr><th>Producto</th><th>Tipo</th><th>Cantidad</th><th>Motivo</th><th>Fecha</th></tr></thead>'
         f'<tbody>{"<tr><td colspan=5 class=tmuted>Sin movimientos</td></tr>" if not filas else filas}</tbody></table></div></div></div>'))
 
 # ================================================================
-#  TIENDA CLIENTE — con promociones
+#  TIENDA CLIENTE — Catálogo por categorías
 # ================================================================
 @app.route("/tienda")
 def tienda():
-    if not li() and not is_guest():
-        return redirect("/")
+    if not li() and not is_guest(): return redirect("/")
     if is_ad():  return redirect("/admin")
     if is_em():  return redirect("/empleado")
     if is_dm():  return redirect("/domi")
     if is_pv():  return redirect("/prov")
-    tid  = tid_now()
-    t    = get_tienda()
-    wa   = t.get("whatsapp", "").strip().replace("+", "").replace(" ", "")
+    tid    = tid_now()
+    t      = get_tienda()
+    wa     = t.get("whatsapp", "").strip().replace("+", "").replace(" ", "")
     wa_msg = t.get("whatsapp_msg", "Hola!").replace(" ", "%20")
-    prods  = db_query("SELECT * FROM productos WHERE tienda_id=%s ORDER BY nombre",
+    prods  = db_query("SELECT * FROM productos WHERE tienda_id=%s ORDER BY categoria,nombre",
                       (tid,), fetchall=True) or []
     promos = db_query(
         "SELECT * FROM promociones WHERE tienda_id=%s AND activa=1 AND (hasta IS NULL OR hasta>=%s)",
         (tid, hoy()), fetchall=True) or []
+
+    # ── Banners promociones ──────────────────────────────────────────
     ph = ""
     if promos:
-        ph = '<div style="margin-bottom:20px">'
+        ph = '<div style="margin-bottom:24px;display:flex;flex-direction:column;gap:10px">'
         for pr in promos[:3]:
             ph += (f'<div class="promo-banner" style="background:linear-gradient(135deg,'
                    f'{pr.get("color","#ef4444")},{pr.get("color2","#f97316")})">'
@@ -3549,27 +5314,125 @@ def tienda():
                    f'<p>{pr.get("descripcion","")}</p>'
                    f'<span class="promo-badge">💰 {pr.get("descuento","")}</span></div>')
         ph += '</div>'
-    cards = ""
+
+    if not prods:
+        return base(f'🏪 {t.get("nombre","")}',
+                    ph + '<div class="al a-i">No hay productos disponibles aún.</div>')
+
+    # ── Agrupar por categoría ────────────────────────────────────────
+    CAT_ICONOS = {
+        "Panaderia":"🥐","Panadería":"🥐","Bebidas":"🥤","Granos":"🌾",
+        "Aseo":"🧹","Aseo y Hogar":"🧹","Insumos":"🏭","Frutas":"🍎",
+        "Verduras":"🥦","Carnes":"🥩","Lácteos":"🧀","Snacks":"🍿",
+        "Dulces":"🍬","Condimentos":"🌶️","Aceites":"🫙","General":"🛒",
+    }
+
+    categorias = {}
     for p in prods:
-        pr_m = next((pr for pr in promos if str(p["id"]) in (pr.get("pids") or "").split(",")), None)
-        ag   = p["cantidad"] == 0
-        badge = "<span class='tag t-rd'>Sin stock</span>" if ag else f"<span class='tag t-gr'>Stock: {p['cantidad']}</span>"
-        btn   = "<button class='btn bg bsm' disabled>Agotado</button>" if ag else f"<a href='/add_cart/{p['id']}' class='btn bp bsm'>🛒 Agregar</a>"
-        wa_b  = f"<a href='https://wa.me/{wa}?text={wa_msg}' target='_blank' class='btn bwa bsm'>{WA_SVG}</a>" if wa else ""
-        prl   = (f'<br><span style="background:#ef4444;color:#fff;font-size:.62rem;font-weight:800;'
-                 f'padding:2px 8px;border-radius:10px;display:inline-block;margin-top:3px">'
-                 f'🏷️ {pr_m["descuento"]} OFF</span>') if pr_m else ""
-        img   = p.get("img") or "https://images.unsplash.com/photo-1549931319-a545dcf3bc7c?w=400"
-        cards += (f'<div class="pc">'
-                  f'<img src="{img}" alt="{p["nombre"]}" loading="lazy" '
-                  f'onerror="this.src=\'https://images.unsplash.com/photo-1549931319-a545dcf3bc7c?w=400\'">'
-                  f'<div class="pcb"><div class="pcn">{p["nombre"]}{prl}</div>'
-                  f'<div class="pcc">{p.get("categoria","")}</div>{badge}'
-                  f'<div class="pcp">{fmt(p["precio"])}</div></div>'
-                  f'<div class="pcf">{btn}{wa_b}</div></div>')
+        cat = p.get("categoria","General") or "General"
+        categorias.setdefault(cat, []).append(p)
+
+    # ── Tabs de categorías (sticky) ──────────────────────────────────
+    tabs_css = (
+        f'<style>'
+        f'.cat-tabs{{display:flex;gap:8px;overflow-x:auto;padding:0 0 10px;margin-bottom:24px;'
+        f'position:sticky;top:0;z-index:50;background:var(--bg);padding-top:8px;'
+        f'scrollbar-width:none}}'
+        f'.cat-tabs::-webkit-scrollbar{{display:none}}'
+        f'.cat-tab{{flex-shrink:0;padding:8px 16px;border-radius:99px;border:1.5px solid var(--bd);'
+        f'background:var(--card);font-size:.8rem;font-weight:700;cursor:pointer;text-decoration:none;'
+        f'color:var(--tx);transition:all .18s;white-space:nowrap}}'
+        f'.cat-tab.active,.cat-tab:hover{{background:var(--pr);border-color:var(--pr);color:#fff}}'
+        f'.cat-section{{margin-bottom:36px}}'
+        f'.cat-title{{display:flex;align-items:center;gap:10px;margin-bottom:16px;'
+        f'padding-bottom:10px;border-bottom:2px solid var(--bd)}}'
+        f'.cat-ico{{font-size:1.6rem}}'
+        f'.cat-name{{font-size:1.05rem;font-weight:900;color:var(--tx)}}'
+        f'.cat-count{{font-size:.72rem;color:var(--mt);background:var(--bd);'
+        f'padding:2px 10px;border-radius:99px}}'
+        f'</style>'
+    )
+
+    tabs_html = '<div class="cat-tabs">'
+    tabs_html += f'<a class="cat-tab active" href="#cat-all" onclick="showAll()">🛒 Todos</a>'
+    for cat in categorias.keys():
+        ico = CAT_ICONOS.get(cat, "📦")
+        tabs_html += f'<a class="cat-tab" href="#cat-{cat}" onclick="showCat(\'{cat}\')">{ico} {cat}</a>'
+    tabs_html += '</div>'
+
+    # ── Tarjetas por categoría ────────────────────────────────────────
+    secciones_html = ""
+    for cat, items in categorias.items():
+        ico  = CAT_ICONOS.get(cat, "📦")
+        cards_cat = ""
+        for p in items:
+            pr_m  = next((pr for pr in promos if str(p["id"]) in (pr.get("pids") or "").split(",")), None)
+            ag    = p["cantidad"] == 0
+            has_b = bool(p.get("img_blob"))
+            img   = f"/img_prod/{p['id']}" if has_b else (
+                p.get("img") or "https://images.unsplash.com/photo-1549931319-a545dcf3bc7c?w=400")
+            badge = "<span class='tag t-rd' style='font-size:.65rem'>Sin stock</span>" if ag else \
+                    f"<span class='tag t-gr' style='font-size:.65rem'>Stock: {p['cantidad']}</span>"
+            btn   = "<button class='btn bg bsm' disabled style='flex:1'>Agotado</button>" if ag else \
+                    f"<a href='/add_cart/{p['id']}' class='btn bp bsm' style='flex:1;text-align:center'>🛒 Agregar</a>"
+            wa_b  = f"<a href='https://wa.me/{wa}?text={wa_msg}' target='_blank' class='btn bwa bsm'>{WA_SVG}</a>" if wa else ""
+            prl   = (f'<span style="background:#ef4444;color:#fff;font-size:.6rem;font-weight:800;'
+                     f'padding:2px 8px;border-radius:10px;display:inline-block;margin-top:3px">'
+                     f'🏷️ {pr_m["descuento"]} OFF</span>') if pr_m else ""
+            sub   = p.get("subcategoria","")
+
+            cards_cat += (
+                f'<div class="pc" style="border-radius:18px;overflow:hidden;'
+                f'box-shadow:0 2px 10px rgba(0,0,0,.07);transition:all .2s" '
+                f'onmouseover="this.style.transform=\'translateY(-4px)\';this.style.boxShadow=\'0 8px 28px rgba(79,70,229,.15)\'" '
+                f'onmouseout="this.style.transform=\'\';this.style.boxShadow=\'0 2px 10px rgba(0,0,0,.07)\'">'
+                f'<div style="position:relative">'
+                f'<img src="{img}" alt="{p["nombre"]}" loading="lazy" '
+                f'style="width:100%;height:160px;object-fit:cover" '
+                f'onerror="this.src=\'https://images.unsplash.com/photo-1549931319-a545dcf3bc7c?w=400\'">'
+                + (f'<div style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);'
+                   f'border-radius:99px;padding:2px 9px;font-size:.62rem;color:#fff">{sub}</div>' if sub else "")
+                + f'</div>'
+                f'<div class="pcb">'
+                f'<div class="pcn">{p["nombre"]}{prl}</div>'
+                f'{badge}'
+                f'<div class="pcp">{fmt(p["precio"])}</div>'
+                f'</div>'
+                f'<div class="pcf" style="gap:6px">{btn}{wa_b}</div>'
+                f'</div>'
+            )
+
+        secciones_html += (
+            f'<div class="cat-section" id="cat-{cat}" data-cat="{cat}">'
+            f'<div class="cat-title">'
+            f'<span class="cat-ico">{ico}</span>'
+            f'<span class="cat-name">{cat}</span>'
+            f'<span class="cat-count">{len(items)} productos</span>'
+            f'</div>'
+            f'<div class="pg">{cards_cat}</div>'
+            f'</div>'
+        )
+
+    script = (
+        f'<script>'
+        f'function showCat(cat){{'
+        f'  document.querySelectorAll(".cat-section").forEach(function(s){{'
+        f'    s.style.display=s.dataset.cat===cat?"block":"none";'
+        f'  }});'
+        f'  document.querySelectorAll(".cat-tab").forEach(function(t){{'
+        f'    t.classList.toggle("active",t.textContent.includes(cat));'
+        f'  }});'
+        f'}}'
+        f'function showAll(){{'
+        f'  document.querySelectorAll(".cat-section").forEach(function(s){{s.style.display="block";}});'
+        f'  document.querySelectorAll(".cat-tab").forEach(function(t){{t.classList.remove("active");}});'
+        f'  document.querySelector(".cat-tab").classList.add("active");'
+        f'}}'
+        f'</script>'
+    )
+
     return base(f'🏪 {t.get("nombre","")}',
-                ph + f'<div class="pg">{cards}</div>' if cards
-                else ph + '<div class="al a-i">No hay productos disponibles.</div>')
+                tabs_css + ph + tabs_html + secciones_html + script)
 
 # ================================================================
 #  CARRITO
@@ -3842,7 +5705,7 @@ def checkout():
         f'<div class="comprobante-box" id="comp-box" onclick="document.getElementById(\'comprobante\').click()">'
         f'<div id="comp-ph"><span style="font-size:2rem">📸</span><br>'
         f'<span style="font-weight:700;color:#5f259f">Toca para subir comprobante</span><br>'
-        f'<span style="font-size:.73rem;color:var(--mt)">JPG · PNG · PDF</span></div>'
+        f'<span style="font-size:.73rem;color:var(--mt)">JPG · PNG ·  Factura</span></div>'
         f'<img id="comp-prev" style="display:none;max-width:220px;border-radius:10px;margin:10px auto 0">'
         f'<p id="comp-name" style="font-size:.75rem;color:var(--sc);margin-top:6px;display:none"></p>'
         f'</div>'
@@ -3950,221 +5813,666 @@ def checkout():
         f'}});'
         f'</script>'
     ))
+# ── Helper comprobante — función pura, SIN decorador de ruta ──────────
+def _comp_html_unico(pedido_id, tid, wa, uid, codigo, subtotal):
+    """
+    Retorna HTML del comprobante UNA SOLA VEZ.
+    - Si ya fue enviado → muestra estado (no vuelve a pedir).
+    - Si no → muestra botón WhatsApp solo para Nequi/Daviplata.
+    """
+    # Verificar si ya existe comprobante cargado
+    comp = db_query(
+        "SELECT id, revisado FROM comprobantes WHERE pedido_id=%s AND tienda_id=%s LIMIT 1",
+        (pedido_id, tid), fetchone=True)
 
+    if comp:
+        rev_txt = "✅ Revisado por la tienda" if comp.get("revisado") else "🕐 En revisión"
+        return (
+            '<div style="background:#f0fdf4;border-radius:12px;padding:12px 16px;'
+            'border:1px solid #bbf7d0;display:flex;align-items:center;gap:10px;margin-top:10px">'
+            '<span style="font-size:1.4rem">📎</span>'
+            '<div>'
+            '<div style="font-weight:800;font-size:.85rem;color:#15803d">Comprobante ya enviado</div>'
+            '<div style="font-size:.75rem;color:#15803d">' + rev_txt + '</div>'
+            '</div></div>'
+        )
+
+    # Verificar método de pago
+    ped = db_query("SELECT pago FROM pedidos WHERE id=%s", (pedido_id,), fetchone=True)
+    if not ped or ped.get("pago") not in ("Nequi", "Daviplata"):
+        return ""  # Efectivo: no necesita comprobante
+
+    if not wa:
+        return (
+            '<div class="al a-i" style="font-size:.8rem;margin-top:8px">'
+            '💡 Recuerda enviar el comprobante de pago a la tienda.</div>'
+        )
+
+    monto_fmt = fmt(subtotal)
+    wm = ("Hola! Soy " + str(uid or "") + ". Mi pedido " + str(codigo) +
+          " por " + monto_fmt + ". Adjunto comprobante.").replace(" ", "%20")
+    return (
+        '<div style="background:#fff7ed;border-radius:12px;padding:14px 16px;'
+        'border:1.5px solid #fed7aa;margin-top:12px">'
+        '<div style="font-weight:800;font-size:.84rem;color:#c2410c;margin-bottom:10px">'
+        '📎 Envía tu comprobante de pago (1 sola vez)</div>'
+        '<a href="https://wa.me/' + wa + '?text=' + wm + '" target="_blank" '
+        'class="btn bwa blg" style="width:100%;text-align:center;display:block">'
+        + WA_SVG + ' Enviar comprobante por WhatsApp</a>'
+        '</div>'
+    )
 
 @app.route("/conf_pedido")
 def conf_pedido():
     if not li() and not is_guest(): return redirect("/")
-    cod=session.pop("ultp","-"); met=session.pop("ultp_met","Efectivo"); tf=session.pop("ultp_tot","0")
-    ped=db_query("SELECT * FROM pedidos WHERE codigo=%s AND tienda_id=%s",(cod,tid_now()),fetchone=True)
-    tot=fmt(ped["subtotal"]) if ped else fmt(tf)
-    pid=ped["id"] if ped else 0
-    ent=ped.get("entrega","recogida") if ped else "recogida"
-    t=get_tienda(); wa=t.get("whatsapp","").strip().replace("+","").replace(" ","")
-    wm=f"Hola! Hice el pedido {cod} por {tot}. Pago: {met}. Adjunto comprobante.".replace(" ","%20")
-    wb=(f"<a href='https://wa.me/{wa}?text={wm}' target='_blank' class='btn bwa blg'>{WA_SVG} Enviar comprobante</a>") if wa else ""
+    cod = session.pop("ultp", "-")
+    met = session.pop("ultp_met", "Efectivo")
+    tf  = session.pop("ultp_tot", "0")
+    tid = tid_now()
+    t   = get_tienda()
 
-    instrucciones=""
-    if met in ("Nequi","Daviplata"):
-        tel=t.get("telefono","") or t.get("whatsapp","")
+    ped = db_query(
+        "SELECT * FROM pedidos WHERE codigo=%s AND tienda_id=%s",
+        (cod, tid), fetchone=True)
 
-        link2 = ""
-        if wa:
-            link2 = f"<a href='https://wa.me/{wa}?text={wm}' target='_blank' class='btn bwa blg bbl' style='margin-top:12px'>{WA_SVG} Enviar comprobante ahora</a>"
+    tot    = fmt(ped["subtotal"]) if ped else fmt(tf)
+    pid    = ped["id"] if ped else 0
+    ent    = ped.get("entrega", "recogida") if ped else "recogida"
+    uid    = user_id_now() or ""
+    wa     = t.get("whatsapp", "").strip().replace("+", "").replace(" ", "")
 
-        instrucciones=(
-            f'<div style="background:linear-gradient(135deg,#f0f9ff,#fff);border:2px solid #38bdf8;border-radius:14px;padding:18px;margin:16px 0;text-align:left">'
-            f'<p style="font-weight:900;color:#0369a1;margin-bottom:10px;font-size:.95rem">💳 Pasos para completar tu pago con {met}</p>'
-            f'<div style="display:flex;flex-direction:column;gap:8px;font-size:.84rem">'
-            f'<p>1️⃣ Abre tu app de <strong>{met}</strong></p>'
-            f'<p>2️⃣ Transfiere <strong>{tot}</strong> al número: <strong style="font-size:1.1rem;color:#0369a1">{tel}</strong></p>'
-            f'<p>3️⃣ Concepto: <strong>{cod}</strong></p>'
-            f'<p>4️⃣ Toma pantallazo del comprobante</p>'
-            f'<p>5️⃣ Envía el comprobante por WhatsApp 👇</p>'
-            f'</div>'
-            f'{link2}'
-            f'</div>'
+    # ── Mensaje de agradecimiento (reemplaza instrucciones + comp WA) ──
+    instrucciones = ""
+    comp_html     = ""
+
+    if met in ("Nequi", "Daviplata"):
+        tel = t.get("telefono", "") or t.get("whatsapp", "")
+        instrucciones = (
+            '<div style="background:linear-gradient(135deg,#faf5ff,#f5f3ff);'
+            'border:1.5px solid #e9d5ff;border-radius:16px;padding:22px 20px;'
+            'margin:16px 0;text-align:center">'
+            '<div style="font-size:2.2rem;margin-bottom:10px">🙏</div>'
+            '<p style="font-weight:900;color:#7c3aed;font-size:1rem;margin-bottom:8px">'
+            '¡Gracias por tu compra!</p>'
+            '<p style="font-size:.84rem;color:#6d28d9;margin-bottom:14px">'
+            'Para completar tu pedido, transfiere <strong>' + tot + '</strong> '
+            'al número <strong style="font-size:1rem;color:#7c3aed">' + str(tel) + '</strong> '
+            'por <strong>' + met + '</strong> usando el código '
+            '<strong style="letter-spacing:.06em">' + cod + '</strong> en el concepto.'
+            '</p>'
+            '<div style="background:rgba(124,58,237,.08);border-radius:10px;'
+            'padding:10px 16px;font-size:.78rem;color:#7c3aed;display:inline-block">'
+            '📸 Guarda el pantallazo de tu transferencia.'
+            '<br>La tienda verificará tu pago y actualizará el estado.</div>'
+            '</div>'
+        )
+    else:
+        instrucciones = (
+            '<div style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);'
+            'border:1.5px solid #bbf7d0;border-radius:16px;padding:22px 20px;'
+            'margin:16px 0;text-align:center">'
+            '<div style="font-size:2.2rem;margin-bottom:10px">🙏</div>'
+            '<p style="font-weight:900;color:#15803d;font-size:1rem;margin-bottom-8px">'
+            '¡Gracias por tu compra!</p>'
+            '<p style="font-size:.84rem;color:#166534;margin-top:8px">'
+            'Tu pedido fue registrado. Pagas en <strong>efectivo</strong> '
+            'al recibir tu pedido. ¡Nos vemos pronto! 😊'
+            '</p>'
+            '</div>'
         )
 
-    dm=(f'<div class="al a-k">🏍️ <strong>Pedido a domicilio.</strong> Te contactaremos al llegar. Puedes cancelarlo en los próximos 10 minutos.</div>'
-        if ent=="domicilio" else
-        f'<div class="al a-i">🏪 Listo para <strong>recogida en tienda</strong>. Puedes cancelarlo en los próximos 10 minutos.</div>')
+    # ── Info de entrega ───────────────────────────────────────────────
+    if ent == "domicilio":
+        dm_html = (
+            '<div class="al a-k" style="margin-bottom:12px">'
+            '🏍️ <strong>Pedido a domicilio.</strong> '
+            'Te contactaremos pronto. Puedes cancelarlo en los próximos 15 minutos.</div>'
+        )
+    else:
+        dm_html = (
+            '<div class="al a-i" style="margin-bottom:12px">'
+            '🏪 Listo para <strong>recogida en tienda</strong>. '
+            'Puedes cancelarlo en los próximos 15 minutos.</div>'
+        )
 
-    return base("✅ Pedido Confirmado",(
-        f'<div class="sec" style="max-width:520px;margin:auto;text-align:center">'
-        f'<div class="sb2" style="padding:36px">'
-        f'<div style="font-size:4rem;margin-bottom:14px">🎉</div>'
-        f'<h2 style="font-size:1.5rem;font-weight:900;color:var(--sc);margin-bottom:8px">¡Pedido realizado!</h2>'
-        f'<p style="color:var(--mt);margin-bottom:18px">Tu pedido ha sido recibido correctamente.</p>'
-        f'{dm}'
-        f'<div style="background:linear-gradient(135deg,#f0fdf4,#fff);border:2px solid #bbf7d0;border-radius:14px;padding:20px;margin:16px 0">'
-        f'<div style="font-size:.72rem;color:var(--mt);font-weight:700;text-transform:uppercase;margin-bottom:6px">Código de pedido</div>'
-        f'<div style="font-size:2rem;font-weight:900;color:var(--sc);letter-spacing:.2em">{cod}</div>'
-        f'<div style="font-size:1.1rem;font-weight:700;margin-top:8px">Total: {tot}</div>'
-        f'<div style="font-size:.82rem;color:var(--mt);margin-top:4px">Método: {met}</div>'
-        f'</div>'
-        f'{instrucciones}'
-        f'<div class="fr" style="justify-content:center;flex-wrap:wrap;gap:10px">'
-        f'<a href="/mis_pedidos" class="btn bp blg">📦 Ver mis pedidos</a>'
-        f'<a href="/pdf_pedido/{pid}" class="btn bg blg">📄 Descargar recibo</a>'
-        f'{wb}</div>'
-        f'<a href="/tienda" class="btn bw2 blg bbl">🛍️ Seguir comprando</a>'
-        f'<a href="/mis_pedidos" class="btn bg blg bbl">📦 Ver mis pedidos</a>'
-        f'<div style="margin-top:16px;padding:14px;background:#fffbeb;'
-           f'border:1px solid #fde68a;border-radius:12px;font-size:.8rem;color:#92400e">'
-           f'💡 <strong>¿Vuelves después?</strong> Guarda tu celular '
-           f'<strong>{session.get("_ck_cel","")}</strong> para buscar este pedido '
-           f'en "🔍 Buscar pedido" del menú.</div>'
-           if is_guest() and session.get("_ck_cel") else ""
-        f'</div></div>'
-    ))
+    # ── Botón factura ─────────────────────────────────────────────────
+    factura_btn = ""
+    if pid:
+        factura_btn = '<a href="/factura/' + str(pid) + '" class="btn bg blg">🧾 Descargar Factura</a>'
 
+    # ── Tip invitado ──────────────────────────────────────────────────
+    tip_guest = ""
+    cel_guardado = session.get("_ck_cel", "")
+    if is_guest() and cel_guardado:
+        tip_guest = (
+            '<div style="margin-top:16px;padding:14px;background:#fffbeb;'
+            'border:1px solid #fde68a;border-radius:12px;font-size:.8rem;color:#92400e">'
+            '💡 <strong>¿Vuelves después?</strong> Guarda tu celular '
+            '<strong>' + cel_guardado + '</strong> para buscar este pedido '
+            'en "🔍 Buscar pedido" del menú.</div>'
+        )
+
+    # ── Construir cuerpo sin concatenaciones + seguidas ───────────────
+    cuerpo = (
+        '<div class="sec" style="max-width:520px;margin:auto;text-align:center">'
+        '<div class="sb2" style="padding:36px">'
+        '<div style="font-size:4rem;margin-bottom:14px">🎉</div>'
+        '<h2 style="font-size:1.5rem;font-weight:900;color:var(--sc);margin-bottom:8px">'
+        '¡Pedido realizado!</h2>'
+        '<p style="color:var(--mt);margin-bottom:18px">Tu pedido fue recibido correctamente.</p>'
+    )
+    cuerpo += dm_html
+    cuerpo += (
+        '<div style="background:linear-gradient(135deg,#f0fdf4,#fff);'
+        'border:2px solid #bbf7d0;border-radius:14px;padding:20px;margin:16px 0">'
+        '<div style="font-size:.72rem;color:var(--mt);font-weight:700;'
+        'text-transform:uppercase;margin-bottom:6px">Código de pedido</div>'
+        '<div style="font-size:2rem;font-weight:900;color:var(--sc);letter-spacing:.2em">'
+        + cod + '</div>'
+        '<div style="font-size:1.1rem;font-weight:700;margin-top:8px">Total: ' + tot + '</div>'
+        '<div style="font-size:.82rem;color:var(--mt);margin-top:4px">Método: ' + met + '</div>'
+        '</div>'
+    )
+    cuerpo += instrucciones
+    cuerpo += comp_html
+    cuerpo += (
+        '<div style="display:flex;flex-direction:column;gap:10px;margin-top:20px">'
+    )
+    cuerpo += factura_btn
+    cuerpo += (
+        '<a href="/buscar_pedido" class="btn bp blg" style="text-align:center">'
+        '🔍 Consultar mi pedido</a>'
+        '<a href="/tienda" class="btn bg blg" style="text-align:center">'
+        '🛍️ Seguir comprando</a>'
+        '</div>'
+    )
+    cuerpo += tip_guest
+    cuerpo += '</div></div>'
+
+    return base("✅ Pedido Confirmado", cuerpo)
 # ================================================================
-#  MIS PEDIDOS
+#  PEDIDOS — MIS PEDIDOS + BUSCAR PEDIDO (UI PRO)
 # ================================================================
-# ================================================================
-#  BUSCAR PEDIDO POR CELULAR (para invitados que regresan)
-# ================================================================
+@app.route("/pedidos", methods=["GET","POST"])
+@app.route("/mis_pedidos")
 @app.route("/buscar_pedido", methods=["GET","POST"])
-def buscar_pedido():
-    if not li(): return redirect("/")
-    tid  = tid_now()
-    peds = []
-    err  = ""
-    buscado = False
+def pedidos_unificado():
+    if not li() and not is_guest(): return redirect("/")
+    tid   = tid_now()
+    uid   = user_id_now()
+    t     = get_tienda()
+    msg   = ""
+    peds  = []
+    busco = False
 
+    # ── Cargar pedidos de usuario registrado ─────────────────────────
+    if uid and not uid.startswith("guest_"):
+        peds = db_query(
+            "SELECT * FROM pedidos WHERE tienda_id=%s AND user=%s ORDER BY id DESC",
+            (tid, uid), fetchall=True) or []
+
+    # ── Búsqueda por celular (invitados) ──────────────────────────────
     if request.method == "POST":
-        buscado = True
-        nom_b = request.form.get("b_nombre","").strip()
         cel_b = request.form.get("b_cel","").strip()
-
+        nom_b = request.form.get("b_nombre","").strip()
+        busco = True
         if not cel_b or not ok_cel(cel_b):
-            err = '<div class="al a-d">⚠️ Ingresa un número de celular válido (solo dígitos).</div>'
+            msg = "error"
         else:
-            uid_b = f"guest_{cel_b}"
-            peds  = (db_query(
+            uid_b = "guest_" + cel_b
+            peds  = db_query(
                 "SELECT * FROM pedidos WHERE tienda_id=%s AND user=%s ORDER BY id DESC",
-                (tid, uid_b), fetchall=True) or [])
-            # Guardar en sesión para que funcione el resto de la tienda
+                (tid, uid_b), fetchall=True) or []
             if peds:
-                session["_ck_nombre"] = nom_b or peds[0].get("user", uid_b)
+                session["_ck_nombre"] = nom_b or uid_b
                 session["_ck_cel"]    = cel_b
                 session.modified = True
 
-    t  = get_tienda()
-    col = {"Pendiente":"t-am","Aprobado":"t-bl","En camino":"t-sk",
-           "Entregado":"t-gr","Cancelado":"t-rd","Devolucion":"t-pu"}
+    # ── Config de estados ─────────────────────────────────────────────
+    EST_CFG = {
+        "Pendiente":              ("⏳", "#f59e0b", "#fffbeb", "#fde68a", "Pendiente por entregar"),
+        "Pendiente por entregar": ("⏳", "#f59e0b", "#fffbeb", "#fde68a", "Pendiente por entregar"),
+        "Aprobado":               ("✅", "#3b82f6", "#eff6ff", "#bfdbfe", "Aprobado"),
+        "En camino":              ("🏍️", "#06b6d4", "#ecfeff", "#a5f3fc", "En camino"),
+        "Entregado":              ("📦", "#22c55e", "#f0fdf4", "#bbf7d0", "Entregado"),
+        "Cancelado":              ("❌", "#ef4444", "#fef2f2", "#fecaca", "Cancelado"),
+        "Devolucion":             ("🔄", "#8b5cf6", "#faf5ff", "#e9d5ff", "En devolución"),
+    }
 
+    # ── CSS exclusivo del módulo ──────────────────────────────────────
+    css = """
+<style>
+.ped-card{
+  background:var(--card);
+  border:1.5px solid var(--bd);
+  border-radius:20px;
+  margin-bottom:16px;
+  overflow:hidden;
+  transition:box-shadow .2s,transform .2s;
+}
+.ped-card:hover{
+  box-shadow:0 8px 32px rgba(79,70,229,.12);
+  transform:translateY(-2px);
+}
+.ped-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  padding:16px 20px 12px;
+  border-bottom:1px solid var(--bd);
+  flex-wrap:wrap;
+  gap:10px;
+}
+.ped-cod{
+  font-size:1.05rem;
+  font-weight:900;
+  color:var(--pr);
+  letter-spacing:.03em;
+}
+.ped-meta{
+  font-size:.72rem;
+  color:var(--mt);
+  margin-top:3px;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.ped-meta span{
+  display:inline-flex;
+  align-items:center;
+  gap:3px;
+}
+.ped-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:5px 13px;
+  border-radius:99px;
+  font-size:.72rem;
+  font-weight:800;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  white-space:nowrap;
+}
+.ped-body{
+  padding:14px 20px;
+}
+.ped-items{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  margin-bottom:14px;
+}
+.ped-item{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:.82rem;
+  padding:6px 10px;
+  border-radius:10px;
+  background:var(--bg);
+}
+.ped-item-nom{color:var(--tx)}
+.ped-item-sub{font-weight:700;color:var(--sc)}
+.ped-footer{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding-top:12px;
+  border-top:1.5px solid var(--bd);
+  flex-wrap:wrap;
+  gap:8px;
+}
+.ped-total{
+  font-size:1.1rem;
+  font-weight:900;
+  color:var(--sc);
+}
+.ped-actions{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.cancel-bar{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 12px;
+  border-radius:10px;
+  background:#eff6ff;
+  border:1px solid #bfdbfe;
+  font-size:.76rem;
+  color:#1d4ed8;
+  margin-bottom:10px;
+}
+.cancel-expired{
+  font-size:.73rem;
+  color:var(--mt);
+  padding:5px 10px;
+  border-radius:8px;
+  background:var(--bg);
+  margin-bottom:8px;
+  display:inline-block;
+}
+.comp-ok{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 12px;
+  border-radius:10px;
+  background:#f0fdf4;
+  border:1px solid #bbf7d0;
+  font-size:.78rem;
+  color:#15803d;
+  margin-bottom:10px;
+  font-weight:700;
+}
+.comp-pend{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 12px;
+  border-radius:10px;
+  background:#fffbeb;
+  border:1px solid #fde68a;
+  font-size:.78rem;
+  color:#92400e;
+  margin-bottom:10px;
+}
+/* Buscador */
+.search-box{
+  background:var(--card);
+  border:1.5px solid var(--bd);
+  border-radius:20px;
+  padding:28px;
+  max-width:520px;
+  margin:0 auto 24px;
+}
+.search-box h3{
+  font-size:1rem;
+  font-weight:900;
+  margin-bottom:6px;
+}
+.search-box p{
+  font-size:.82rem;
+  color:var(--mt);
+  margin-bottom:18px;
+}
+.tab-bar{
+  display:flex;
+  border-bottom:2px solid var(--bd);
+  margin-bottom:20px;
+  gap:4px;
+}
+.tab-btn{
+  padding:9px 18px;
+  font-size:.82rem;
+  font-weight:700;
+  border:none;
+  background:none;
+  color:var(--mt);
+  cursor:pointer;
+  border-bottom:2.5px solid transparent;
+  margin-bottom:-2px;
+  border-radius:8px 8px 0 0;
+  transition:all .15s;
+  text-decoration:none;
+  display:inline-block;
+}
+.tab-btn.active{
+  color:var(--pr);
+  border-bottom-color:var(--pr);
+  background:rgba(79,70,229,.05);
+}
+.empty-state{
+  text-align:center;
+  padding:52px 20px;
+  color:var(--mt);
+}
+.empty-state .ico{font-size:3.5rem;margin-bottom:14px}
+.empty-state p{font-size:.9rem;margin-bottom:20px}
+</style>
+"""
+
+    # ── Construir cards de pedidos ────────────────────────────────────
     cards = ""
     for p in peds:
-        tc = col.get(p.get("estado",""), "t-gy")
+        est    = str(p.get("estado","Pendiente"))
+        cfg    = EST_CFG.get(est, ("📋","#64748b","#f8fafc","#e2e8f0", est))
+        ico_e, clr, bg_e, bd_e, lbl_e = cfg
+
+        # Items
         items_list = []
         try:   items_list = json.loads(p.get("items") or "[]")
         except: pass
-        ih = "".join(
-            f'<div style="font-size:.8rem;color:var(--mt);padding:2px 0">'
-            f'• {it["nombre"]} x{it["cantidad"]} = {fmt(it["subtotal"])}</div>'
-            for it in items_list) or f'<div style="font-size:.8rem;color:var(--mt)">{p.get("producto","")}</div>'
-        ei = "🏍️" if p.get("entrega") == "domicilio" else "🏪"
+
+        items_html = ""
+        for it in items_list:
+            items_html += (
+                '<div class="ped-item">'
+                '<span class="ped-item-nom">• ' + it["nombre"] + ' <span style="color:var(--mt)">×' + str(it["cantidad"]) + '</span></span>'
+                '<span class="ped-item-sub">' + fmt(it["subtotal"]) + '</span>'
+                '</div>'
+            )
+        if not items_html:
+            items_html = (
+                '<div class="ped-item">'
+                '<span class="ped-item-nom">' + str(p.get("producto","")) + '</span>'
+                '<span class="ped-item-sub">' + fmt(p.get("subtotal",0)) + '</span>'
+                '</div>'
+            )
+
+        # Entrega
+        ent     = str(p.get("entrega","recogida"))
+        ent_ico = "🏍️" if ent == "domicilio" else "🏪"
+        ent_lbl = "Domicilio" if ent == "domicilio" else "Recogida"
+        pago    = str(p.get("pago",""))
+        fecha   = str(p.get("fecha",""))[:16]
+        cod     = str(p.get("codigo",""))
+        pid_str = str(p["id"])
+
+        # Aviso cancelación
+        cancel_html = ""
+        btn_cancel  = ""
+        if est not in ("Cancelado","Entregado","Devolucion"):
+            try:
+                lim  = datetime.strptime(p.get("cancelable_hasta",""), "%Y-%m-%d %H:%M")
+                diff = (lim - datetime.now()).total_seconds()
+                if diff > 0:
+                    mins = int(diff // 60)
+                    segs = int(diff % 60)
+                    cancel_html = (
+                        '<div class="cancel-bar">'
+                        '<span style="font-size:1rem">⏱️</span>'
+                        '<span>Puedes cancelar en los próximos <strong>'
+                        + str(mins) + 'm ' + str(segs) + 's</strong></span>'
+                        '</div>'
+                    )
+                    cod_safe = cod.replace("'","")
+                    btn_cancel = (
+                        '<a href="/cancelar_ped/' + pid_str + '" class="btn bd bsm" '
+                        'onclick="return confirm(\'¿Cancelar pedido ' + cod_safe + '?\')">❌ Cancelar</a>'
+                    )
+                else:
+                    cancel_html = '<span class="cancel-expired">⏰ Plazo de cancelación vencido</span>'
+            except:
+                pass
+
+        # Comprobante — SIN botón de WhatsApp, solo estado
+        comp_html = ""
+        if pago in ("Nequi","Daviplata"):
+            comp_db = db_query(
+                "SELECT id, revisado FROM comprobantes WHERE pedido_id=%s AND tienda_id=%s LIMIT 1",
+                (p["id"], tid), fetchone=True)
+            if comp_db:
+                rev_txt = "Revisado ✅" if comp_db.get("revisado") else "En revisión 🕐"
+                comp_html = (
+                    '<div class="comp-ok">'
+                    '<span style="font-size:1.1rem">📎</span>'
+                    '<span>Comprobante enviado — <strong>' + rev_txt + '</strong></span>'
+                    '</div>'
+                )
+            else:
+                comp_html = (
+                    '<div class="comp-pend">'
+                    '<span style="font-size:1rem">⚠️</span>'
+                    '<span>Comprobante pendiente de envío. '
+                    'Contáctanos si ya realizaste el pago.</span>'
+                    '</div>'
+                )
+
+        # Botón devolución
+        btn_dev = ""
+        if est == "Entregado":
+            btn_dev = '<a href="/pedir_dev/' + pid_str + '" class="btn bpv bsm">🔄 Devolución</a>'
+
+        # Dirección
+        dir_html = ""
+        if ent == "domicilio" and p.get("direccion"):
+            dir_html = (
+                '<div style="font-size:.76rem;color:var(--mt);margin-bottom:8px">'
+                '📍 ' + str(p.get("direccion","")) + '</div>'
+            )
+
         cards += (
-            f'<div class="sec">'
-            f'<div class="sh">'
-            f'<div><h3 style="margin-bottom:3px">#{p.get("codigo","")}</h3>'
-            f'<span style="font-size:.72rem;color:var(--mt)">'
-            f'{str(p.get("fecha",""))[:16]} · {p.get("pago","")} · {ei} {str(p.get("entrega","")).capitalize()}'
-            f'</span></div>'
-            f'<span class="tag {tc}">{p.get("estado","")}</span>'
-            f'</div>'
-            f'<div class="sb2">{ih}'
-            f'<div style="display:flex;justify-content:space-between;align-items:center;'
-            f'margin-top:12px;padding-top:11px;border-top:1px solid var(--bd)">'
-            f'<strong style="font-size:1rem;color:var(--sc)">Total: {fmt(p.get("subtotal",0))}</strong>'
-            f'<a href="/pdf_pedido/{p["id"]}" class="btn bg bsm">📄 PDF</a>'
-            f'</div></div></div>'
+            '<div class="ped-card">'
+            # Cabecera
+            '<div class="ped-head">'
+            '<div>'
+            '<div class="ped-cod">#' + cod + '</div>'
+            '<div class="ped-meta">'
+            '<span>📅 ' + fecha + '</span>'
+            '<span>💳 ' + pago + '</span>'
+            '<span>' + ent_ico + ' ' + ent_lbl + '</span>'
+            '</div>'
+            '</div>'
+            '<div class="ped-badge" style="background:' + bg_e + ';color:' + clr + ';border:1px solid ' + bd_e + '">'
+            + ico_e + ' ' + lbl_e +
+            '</div>'
+            '</div>'
+            # Cuerpo
+            '<div class="ped-body">'
+            + cancel_html
+            + dir_html
+            + comp_html
+            + '<div class="ped-items">' + items_html + '</div>'
+            + '<div class="ped-footer">'
+            '<span class="ped-total">Total: ' + fmt(p.get("subtotal",0)) + '</span>'
+            '<div class="ped-actions">'
+            '<a href="/factura/' + pid_str + '" class="btn bg bsm">🧾 Factura</a>'
+            + btn_cancel
+            + btn_dev +
+            '</div>'
+            '</div>'
+            '</div>'
+            '</div>'
         )
 
-    sin_res = ""
-    if buscado and not err and not peds:
-        sin_res = (f'<div class="sec"><div class="sb2" style="text-align:center;padding:28px">'
-                   f'<div style="font-size:2.5rem">🔍</div>'
-                   f'<p style="color:var(--mt);margin-top:10px">'
-                   f'No encontramos pedidos con ese número en <strong>{t.get("nombre","")}</strong>.</p>'
-                   f'</div></div>')
+    # ── Formulario buscador ───────────────────────────────────────────
+    nom_tienda = t.get("nombre","la tienda")
+    error_html = ""
+    if msg == "error":
+        error_html = (
+            '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;'
+            'padding:10px 14px;font-size:.82rem;color:#dc2626;margin-bottom:12px">'
+            '⚠️ Ingresa un celular válido (solo dígitos, sin espacios).</div>'
+        )
+    elif busco and not peds and msg != "error":
+        error_html = (
+            '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;'
+            'padding:10px 14px;font-size:.82rem;color:#1d4ed8;margin-bottom:12px">'
+            '🔍 No encontramos pedidos con ese celular en <strong>' + nom_tienda + '</strong>.</div>'
+        )
 
-    return base("🔍 Buscar mi pedido", (
-        f'<div style="max-width:520px;margin:0 auto">'
-        f'<div class="sec" style="margin-bottom:20px">'
-        f'<div class="sh"><h3>📦 ¿Ya hiciste un pedido?</h3></div>'
-        f'<div class="sb2">'
-        f'<p style="font-size:.84rem;color:var(--mt);margin-bottom:18px">'
-        f'Ingresa tu número de celular para encontrar tus pedidos anteriores.</p>'
-        f'{err}'
-        f'<form method="post">'
-        f'<div class="fg2">'
-        f'<div class="fg"><label>Nombre (opcional)</label>'
-        f'<div class="input-icon"><span class="icon">👤</span>'
-        f'<input type="text" name="b_nombre" placeholder="Tu nombre" '
-        f'oninput="this.value=this.value.replace(/[^A-Za-z\\u00C0-\\u017E\\s]/g,\'\')"></div></div>'
-        f'<div class="fg"><label>Celular <span style="color:var(--dn)">*</span></label>'
-        f'<div class="input-icon"><span class="icon">📱</span>'
-        f'<input type="tel" name="b_cel" required placeholder="Número con el que pediste" '
-        f'inputmode="numeric" autofocus '
-        f'oninput="this.value=this.value.replace(/[^0-9]/g,\'\')"></div></div>'
-        f'</div>'
-        f'<button class="btn bp blg bbl" style="margin-top:10px;width:100%">'
-        f'🔍 Buscar mis pedidos</button>'
-        f'</form>'
-        f'</div></div>'
-        f'{sin_res}{cards}'
-        f'<a href="/tienda" style="display:block;text-align:center;margin-top:16px;'
-        f'font-size:.76rem;color:var(--mt)">← Volver a la tienda</a>'
-        f'</div>'
-    ))
-@app.route("/mis_pedidos")
-def mis_pedidos():
-    if not li() and not is_guest(): return redirect("/")
-    tid=tid_now()
-    uid  = user_id_now()
-    peds = (db_query("SELECT * FROM pedidos WHERE tienda_id=%s AND user=%s ORDER BY id DESC",
-                     (tid, uid), fetchall=True) or []) if uid else []
-    if not peds:
-        return base("📦 Mis Pedidos",(
-            '<div class="sec" style="max-width:480px;margin:auto"><div class="sb2" style="text-align:center;padding:36px">'
-            '<div style="font-size:3.5rem">📭</div>'
-            '<p style="color:var(--mt);margin:14px 0">No tienes pedidos aún.</p>'
-            '<a href="/tienda" class="btn bp blg">🛍️ Ir a la tienda</a></div></div>'))
-    col={"Pendiente":"t-am","Aprobado":"t-bl","En camino":"t-sk","Entregado":"t-gr","Cancelado":"t-rd","Devolucion":"t-pu"}
-    t=get_tienda(); wa=t.get("whatsapp","").strip().replace("+","").replace(" ","")
-    cards=""
-    for p in peds:
-        tc=col.get(p.get("estado",""),"t-gy")
-        items_list=[]
-        try: items_list=json.loads(p.get("items") or "[]")
-        except: pass
-        ih="".join(f'<div style="font-size:.8rem;color:var(--mt);padding:2px 0">• {it["nombre"]} x{it["cantidad"]} = {fmt(it["subtotal"])}</div>' for it in items_list) or f'<div style="font-size:.8rem;color:var(--mt)">{str(p.get("producto",""))}</div>'
-        ei="🏍️" if p.get("entrega")=="domicilio" else "🏪"
-        cb=""; dv=""; comp_wa=""
-        if p.get("estado") not in ("Cancelado","Entregado"):
-            try:
-                lim=datetime.strptime(p.get("cancelable_hasta",""),"%Y-%m-%d %H:%M")
-                if datetime.now()<=lim:
-                    cb=f"<a href='/cancelar_ped/{p['id']}' class='btn bd bsm' onclick=\"return confirm('Cancelar pedido?')\">Cancelar</a>"
-            except: pass
-        if p.get("estado")=="Entregado":
-            dv=f"<a href='/pedir_dev/{p['id']}' class='btn bpv bsm'>Devolución</a>"
-        if p.get("pago") in ("Nequi","Daviplata") and p.get("estado")=="Pendiente" and wa:
-            wm=f"Hola! Soy {user_id_now() or ''}. Mi pedido {p.get('codigo','')} por {fmt(p.get('subtotal',0))}. Adjunto comprobante.".replace(" ","%20")
-            comp_wa=f"<a href='https://wa.me/{wa}?text={wm}' target='_blank' class='btn bwa bsm'>{WA_SVG} Comprobante</a>"
-        cards+=(f'<div class="sec"><div class="sh">'
-                f'<div><h3 style="margin-bottom:3px">#{str(p.get("codigo",""))}</h3>'
-                f'<span style="font-size:.72rem;color:var(--mt)">{str(p.get("fecha",""))} &middot; {str(p.get("pago",""))} &middot; {ei} {str(p.get("entrega","")).capitalize()}</span></div>'
-                f'<span class="tag {tc}">{str(p.get("estado",""))}</span></div>'
-                f'<div class="sb2">{ih}'
-                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:11px;border-top:1px solid var(--bd)">'
-                f'<strong style="font-size:1rem;color:var(--sc)">Total: {fmt(p.get("subtotal",0))}</strong>'
-                f'<div class="fr"><a href="/pdf_pedido/{p["id"]}" class="btn bg bsm">📄 PDF</a>{cb}{dv}{comp_wa}</div>'
-                f'</div></div></div>')
-    return base("📦 Mis Pedidos",cards)
+    mostrar_buscador = not peds or is_guest() or (uid and uid.startswith("guest_"))
+
+    buscador = ""
+    if mostrar_buscador:
+        buscador = (
+            '<div class="search-box">'
+            '<h3>🔍 Buscar mis pedidos</h3>'
+            '<p>¿Pediste sin cuenta? Ingresa el celular con el que hiciste tu pedido.</p>'
+            + error_html +
+            '<form method="post" style="display:flex;flex-direction:column;gap:12px">'
+            '<div class="fg">'
+            '<label style="font-size:.72rem;font-weight:800;text-transform:uppercase;'
+            'letter-spacing:.08em;color:var(--mt)">Celular *</label>'
+            '<input type="tel" name="b_cel" required placeholder="Ej: 3101234567" '
+            'inputmode="numeric" style="font-size:1rem;padding:12px 16px" '
+            'oninput="this.value=this.value.replace(/[^0-9]/g,\'\')"></div>'
+            '<div class="fg">'
+            '<label style="font-size:.72rem;font-weight:800;text-transform:uppercase;'
+            'letter-spacing:.08em;color:var(--mt)">Nombre (opcional)</label>'
+            '<input type="text" name="b_nombre" placeholder="Tu nombre"></div>'
+            '<button class="btn bp blg" style="font-size:.92rem;padding:13px">'
+            '🔍 Buscar mis pedidos</button>'
+            '</form>'
+            '</div>'
+        )
+
+    # ── Estado vacío ──────────────────────────────────────────────────
+    if not peds and not busco and not is_guest():
+        cuerpo  = css + buscador
+        cuerpo += (
+            '<div class="empty-state">'
+            '<div class="ico">📭</div>'
+            '<p>No tienes pedidos aún.</p>'
+            '<a href="/tienda" class="btn bp blg">🛍️ Ir a la tienda</a>'
+            '</div>'
+        )
+        return base("📦 Mis Pedidos", cuerpo)
+
+    if busco and not peds:
+        cuerpo  = css + buscador
+        cuerpo += (
+            '<div class="empty-state">'
+            '<div class="ico">🔍</div>'
+            '<p>No encontramos pedidos con ese número.</p>'
+            '<p style="font-size:.78rem">Verifica que sea el mismo celular<br>con el que realizaste tu compra.</p>'
+            '</div>'
+        )
+        return base("📦 Buscar Pedido", cuerpo)
+
+    # ── Contador de pedidos por estado ────────────────────────────────
+    if peds:
+        total_peds = len(peds)
+        pend_count = sum(1 for p in peds if p.get("estado","") in ("Pendiente","Pendiente por entregar"))
+        ent_count  = sum(1 for p in peds if p.get("estado","") == "Entregado")
+        can_count  = sum(1 for p in peds if p.get("estado","") == "Cancelado")
+
+        resumen = (
+            '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">'
+            '<div style="flex:1;min-width:90px;background:var(--card);border:1px solid var(--bd);'
+            'border-radius:14px;padding:12px 16px;text-align:center">'
+            '<div style="font-size:1.4rem;font-weight:900;color:var(--pr)">' + str(total_peds) + '</div>'
+            '<div style="font-size:.68rem;color:var(--mt);font-weight:700;text-transform:uppercase">Total</div>'
+            '</div>'
+            '<div style="flex:1;min-width:90px;background:#fffbeb;border:1px solid #fde68a;'
+            'border-radius:14px;padding:12px 16px;text-align:center">'
+            '<div style="font-size:1.4rem;font-weight:900;color:#d97706">' + str(pend_count) + '</div>'
+            '<div style="font-size:.68rem;color:#92400e;font-weight:700;text-transform:uppercase">Pendientes</div>'
+            '</div>'
+            '<div style="flex:1;min-width:90px;background:#f0fdf4;border:1px solid #bbf7d0;'
+            'border-radius:14px;padding:12px 16px;text-align:center">'
+            '<div style="font-size:1.4rem;font-weight:900;color:#15803d">' + str(ent_count) + '</div>'
+            '<div style="font-size:.68rem;color:#15803d;font-weight:700;text-transform:uppercase">Entregados</div>'
+            '</div>'
+            '<div style="flex:1;min-width:90px;background:#fef2f2;border:1px solid #fecaca;'
+            'border-radius:14px;padding:12px 16px;text-align:center">'
+            '<div style="font-size:1.4rem;font-weight:900;color:#dc2626">' + str(can_count) + '</div>'
+            '<div style="font-size:.68rem;color:#dc2626;font-weight:700;text-transform:uppercase">Cancelados</div>'
+            '</div>'
+            '</div>'
+        )
+    else:
+        resumen = ""
+
+    cuerpo  = css
+    cuerpo += buscador
+    cuerpo += resumen
+    cuerpo += cards
+
+    return base("📦 Mis Pedidos", cuerpo)
 
 @app.route("/cancelar_ped/<int:pid>")
 def cancelar_ped(pid):
@@ -4187,304 +6495,414 @@ def cancelar_ped(pid):
                 db_query("INSERT INTO notificaciones(tienda_id,mensaje,leida,fecha) VALUES(%s,%s,0,%s)",
                          (tid,f"❌ Pedido {p.get('codigo','')} cancelado.",now()),commit=True)
         except: pass
-    return redirect("/mis_pedidos")
+    return redirect("/buscar_pedido")
 
 # ================================================================
-#  DEVOLUCIONES — CLIENTE
+#  DEVOLUCIONES CLIENTE — Módulo completo
 # ================================================================
-@app.route("/pedir_dev/<int:pid>",methods=["GET","POST"])
+RAZONES_DEV = [
+    "Producto defectuoso",
+    "Producto vencido",
+    "Error en el pedido (producto incorrecto)",
+    "Cantidad incorrecta",
+    "Producto en mal estado",
+    "No era lo que esperaba",
+    "Otro motivo",
+]
+TIPOS_DEV = {
+    "reembolso": ("💸", "Reembolso", "Devolver el dinero"),
+    "cambio":    ("🔁", "Cambio",    "Cambiar por otro producto"),
+    "bono":      ("🎟️", "Bono",      "Recibir un bono de crédito"),
+}
+ESTADOS_DEV = {
+    "Solicitada":   ("t-am",  "⏳"),
+    "En revisión":  ("t-sk",  "🔍"),
+    "Aprobada":     ("t-gr",  "✅"),
+    "Rechazada":    ("t-rd",  "❌"),
+    "Finalizada":   ("t-bl",  "🏁"),
+}
+
+@app.route("/pedir_dev/<int:pid>", methods=["GET","POST"])
 def pedir_dev(pid):
     if not li() and not is_guest(): return redirect("/")
-    tid=tid_now()
-    p=db_query("SELECT * FROM pedidos WHERE id=%s AND tienda_id=%s AND user=%s",
-               (pid,tid,user_id_now()),fetchone=True)
-    if not p: return redirect("/mis_pedidos")
- 
-    prods=db_query("SELECT * FROM productos WHERE tienda_id=%s AND cantidad>0 ORDER BY nombre",
-                   (tid,),fetchall=True) or []
- 
-    if request.method=="POST":
-        tipo_sol=request.form.get("tipo_solicitud","devolucion")
-        motivo=request.form.get("motivo","").strip()
-        prod_cambio=request.form.get("producto_cambio","").strip() if tipo_sol=="cambio" else ""
-        try:
-            db_query(
-                "INSERT INTO devoluciones(tienda_id,pedido_id,codigo,user,motivo,estado,fecha,subtotal)"
-                " VALUES(%s,%s,%s,%s,%s,'Pendiente',%s,%s)",
-                (tid,pid,p.get("codigo",""),user_id_now() or "",
-                 f"[{tipo_sol.upper()}] {prod_cambio+' — ' if prod_cambio else ''}{motivo}",
-                 now(),p.get("subtotal",0)),commit=True)
-        except Exception:
-            db_query(
-                "INSERT INTO devoluciones(tienda_id,pedido_id,codigo,user,motivo,estado,fecha,subtotal)"
-                " VALUES(%s,%s,%s,%s,%s,'Pendiente',%s,%s)",
-                (tid,pid,p.get("codigo",""),user_id_now() or "",
-                 f"[{tipo_sol.upper()}] {prod_cambio+' — ' if prod_cambio else ''}{motivo}",
-                 now(),p.get("subtotal",0)),commit=True)
-        db_query("UPDATE pedidos SET estado='Devolucion' WHERE id=%s",(pid,),commit=True)
-        icono="💸" if tipo_sol=="devolucion" else "🔁"
-        label="devolución" if tipo_sol=="devolucion" else f"cambio por {prod_cambio}"
-        db_query("INSERT INTO notificaciones(tienda_id,mensaje,leida,fecha) VALUES(%s,%s,0,%s)",
-                 (tid,f"{icono} Solicitud de {label} — pedido {p.get('codigo','')}",now()),commit=True)
+    tid = tid_now()
+    p = db_query("SELECT * FROM pedidos WHERE id=%s AND tienda_id=%s AND user=%s",
+                 (pid, tid, user_id_now()), fetchone=True)
+    if not p: return redirect("/pedidos")
+
+    prods = db_query(
+        "SELECT * FROM productos WHERE tienda_id=%s AND cantidad>0 ORDER BY nombre",
+        (tid,), fetchall=True) or []
+
+    if request.method == "POST":
+        razon    = request.form.get("razon", "Otro motivo").strip()
+        tipo_dev = request.form.get("tipo_dev", "reembolso")
+        motivo   = request.form.get("motivo", "").strip()
+        prod_cambio = request.form.get("producto_cambio","").strip() if tipo_dev == "cambio" else ""
+        desc_completa = f"[{tipo_dev.upper()}] Razón: {razon}. {('Cambio por: '+prod_cambio+'. ') if prod_cambio else ''}{motivo}"
+
+        db_query(
+            "INSERT INTO devoluciones(tienda_id,pedido_id,codigo,user,razon,tipo_dev,"
+            "motivo,estado,fecha,subtotal,tipo_solicitud,producto_cambio)"
+            " VALUES(%s,%s,%s,%s,%s,%s,%s,'Solicitada',%s,%s,%s,%s)",
+            (tid, pid, p.get("codigo",""), user_id_now() or "",
+             razon, tipo_dev, desc_completa, now(),
+             p.get("subtotal",0), tipo_dev, prod_cambio), commit=True)
+
+        db_query("UPDATE pedidos SET estado='Devolucion' WHERE id=%s", (pid,), commit=True)
+        icono = TIPOS_DEV.get(tipo_dev, ("🔄","",""))[0]
+        db_query(
+            "INSERT INTO notificaciones(tienda_id,mensaje,leida,fecha) VALUES(%s,%s,0,%s)",
+            (tid, f"{icono} Solicitud de devolución — pedido {p.get('codigo','')} — {razon}", now()),
+            commit=True)
         return redirect("/mis_devs")
- 
-    val=float(p.get("subtotal",0))
-    cant=max(int(p.get("cantidad",1)),1)
-    precio_unit=val/cant
-    rango_min=precio_unit*0.80; rango_max=precio_unit*1.20
-    prod_opts="".join(
+
+    # ── GET: formulario ──────────────────────────────────────────────
+    val = float(p.get("subtotal", 0))
+    prods_similares = [pr for pr in prods
+                       if val*0.70 <= float(pr["precio"])*max(int(p.get("cantidad",1)),1) <= val*1.40]
+    if not prods_similares: prods_similares = prods
+
+    prod_opts = "".join(
         f"<option value='{pr['nombre']}'>{pr['nombre']} — {fmt(pr['precio'])} / {pr.get('unidad','u')}</option>"
-        for pr in prods if rango_min<=float(pr["precio"])<=rango_max
-    )
-    if not prod_opts:
-        prod_opts="".join(
-            f"<option value='{pr['nombre']}'>{pr['nombre']} — {fmt(pr['precio'])}</option>"
-            for pr in prods)
- 
-    items_list=[]
-    try: items_list=json.loads(p.get("items") or "[]")
+        for pr in prods_similares)
+
+    items_list = []
+    try: items_list = json.loads(p.get("items") or "[]")
     except: pass
-    items_html="".join(
+    items_html = "".join(
         f'<div style="font-size:.82rem;padding:4px 0;border-bottom:1px solid #f1f5f9">'
         f'• {it["nombre"]} ×{it["cantidad"]} = {fmt(it["subtotal"])}</div>'
         for it in items_list
     ) or f'<div style="font-size:.82rem">{p.get("producto","")}</div>'
- 
-    Q="'"
-    return base("🔄 Solicitar Devolución o Cambio",(
-        f'<div class="sec" style="max-width:560px;margin:auto">'
+
+    razones_opts = "".join(f"<option value='{r}'>{r}</option>" for r in RAZONES_DEV)
+    tipos_cards  = "".join(
+        f'<label id="card-{k}" onclick="selTipo(\'{k}\')" '
+        f'style="border:2.5px solid {"#5f259f" if k=="reembolso" else "var(--bd)"};'
+        f'background:{"linear-gradient(135deg,#faf5ff,#fff)" if k=="reembolso" else "#fff"};'
+        f'border-radius:14px;padding:16px 12px;cursor:pointer;text-align:center;transition:all .2s">'
+        f'<input type="radio" name="tipo_dev" value="{k}" {"checked" if k=="reembolso" else ""} style="display:none">'
+        f'<div style="font-size:1.8rem;margin-bottom:6px">{v[0]}</div>'
+        f'<div style="font-weight:900;font-size:.85rem">{v[1]}</div>'
+        f'<div style="font-size:.7rem;color:var(--mt);margin-top:4px">{v[2]}</div>'
+        f'</label>'
+        for k, v in TIPOS_DEV.items())
+
+    return base("🔄 Solicitar Devolución", (
+        f'<div class="sec" style="max-width:580px;margin:auto">'
         f'<div class="sh"><h3>Pedido #{p.get("codigo","")} &nbsp;·&nbsp; {fmt(p.get("subtotal",0))}</h3></div>'
         f'<div class="sb2">'
         f'<div style="background:#f8faff;border-radius:10px;padding:12px;margin-bottom:18px">'
-        f'<p style="font-size:.71rem;font-weight:800;color:var(--mt);text-transform:uppercase;'
+        f'<p style="font-size:.7rem;font-weight:800;color:var(--mt);text-transform:uppercase;'
         f'letter-spacing:.08em;margin-bottom:7px">Productos del pedido</p>'
-        f'{items_html}'
-        f'</div>'
+        f'{items_html}</div>'
         f'<form method="post" id="fdev" style="display:flex;flex-direction:column;gap:16px">'
-        # ── Tipo de solicitud ──
-        f'<div class="fg"><label>¿Qué deseas hacer?</label>'
-        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">'
-        # Devolución
-        f'<label id="card-dev" onclick="selTipo({Q}devolucion{Q})" style="border:2.5px solid #5f259f;'
-        f'background:linear-gradient(135deg,#faf5ff,#fff);border-radius:14px;padding:18px 14px;'
-        f'cursor:pointer;text-align:center;transition:all .2s;box-shadow:0 0 0 3px rgba(95,37,159,.12)">'
-        f'<input type="radio" name="tipo_solicitud" value="devolucion" id="r-dev" checked style="display:none">'
-        f'<div style="font-size:2rem;margin-bottom:7px">💸</div>'
-        f'<div style="font-weight:900;font-size:.9rem;color:#5f259f">Devolución</div>'
-        f'<div style="font-size:.72rem;color:var(--mt);margin-top:5px;line-height:1.4">'
-        f'Quiero que me devuelvan el dinero</div></label>'
-        # Cambio
-        f'<label id="card-cam" onclick="selTipo({Q}cambio{Q})" style="border:2.5px solid var(--bd);'
-        f'background:#fff;border-radius:14px;padding:18px 14px;'
-        f'cursor:pointer;text-align:center;transition:all .2s">'
-        f'<input type="radio" name="tipo_solicitud" value="cambio" id="r-cam" style="display:none">'
-        f'<div style="font-size:2rem;margin-bottom:7px">🔁</div>'
-        f'<div style="font-weight:900;font-size:.9rem;color:#0ea5e9">Cambio</div>'
-        f'<div style="font-size:.72rem;color:var(--mt);margin-top:5px;line-height:1.4">'
-        f'Quiero cambiarlo por otro producto</div></label>'
-        f'</div></div>'
-        # ── Selector de producto para cambio ──
+        # ── Razón ──
+        f'<div class="fg"><label>Razón de la devolución *</label>'
+        f'<select name="razon" required><option value="">-- Selecciona --</option>'
+        f'{razones_opts}</select></div>'
+        # ── Tipo ──
+        f'<div class="fg"><label>¿Qué deseas?</label>'
+        f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px">'
+        f'{tipos_cards}</div></div>'
+        # ── Producto para cambio ──
         f'<div id="bloque-cambio" style="display:none">'
-        f'<div class="fg"><label>¿Por cuál producto lo quieres cambiar?</label>'
-        f'<select name="producto_cambio" style="margin-top:4px">'
-        f'<option value="">Selecciona un producto...</option>'
-        f'{prod_opts}'
-        f'</select>'
-        f'<span class="ph">Mostramos productos con precio similar a tu pedido ({fmt(val)}). '
-        f'La tienda confirmará disponibilidad.</span>'
+        f'<div class="fg"><label>¿Por cuál producto?</label>'
+        f'<select name="producto_cambio"><option value="">Selecciona...</option>{prod_opts}</select>'
+        f'<span class="ph">Mostramos productos con precio similar ({fmt(val)}).</span>'
         f'</div></div>'
-        # ── Motivo ──
-        f'<div class="fg"><label>¿Cuál es el motivo? *</label>'
-        f'<textarea name="motivo" rows="3" required '
-        f'placeholder="Cuéntanos qué pasó: producto dañado, incompleto, no era lo esperado..."></textarea>'
-        f'</div>'
-        # ── Aviso ──
+        # ── Descripción adicional ──
+        f'<div class="fg"><label>Descripción adicional (opcional)</label>'
+        f'<textarea name="motivo" rows="3" placeholder="Cuéntanos más detalles..."></textarea></div>'
         f'<div class="al a-i" style="font-size:.79rem">'
-        f'⏰ Devoluciones y cambios disponibles hasta <strong>24 horas</strong> '
-        f'después de recibido el pedido.</div>'
+        f'⏰ Las solicitudes se procesan en 1–2 días hábiles.</div>'
         f'<button class="btn bpv blg bbl">📤 Enviar solicitud</button>'
         f'</form>'
-        f'<a href="/mis_pedidos" class="btn bg bbl mt16">← Volver a mis pedidos</a>'
+        f'<a href="/pedidos" class="btn bg bbl mt16">← Volver a mis pedidos</a>'
         f'</div></div>'
         f'<script>'
+        f'var tipos={{"reembolso":"#5f259f","cambio":"#0ea5e9","bono":"#d97706"}};'
         f'function selTipo(t){{'
-        f'  var cd=document.getElementById("card-dev");'
-        f'  var cc=document.getElementById("card-cam");'
-        f'  var bc=document.getElementById("bloque-cambio");'
-        f'  if(t==="devolucion"){{'
-        f'    cd.style.borderColor="#5f259f";cd.style.background="linear-gradient(135deg,#faf5ff,#fff)";'
-        f'    cd.style.boxShadow="0 0 0 3px rgba(95,37,159,.12)";'
-        f'    cc.style.borderColor="var(--bd)";cc.style.background="#fff";cc.style.boxShadow="none";'
-        f'    bc.style.display="none";'
-        f'    document.getElementById("r-dev").checked=true;'
-        f'  }}else{{'
-        f'    cc.style.borderColor="#0ea5e9";cc.style.background="linear-gradient(135deg,#f0f9ff,#fff)";'
-        f'    cc.style.boxShadow="0 0 0 3px rgba(14,165,233,.12)";'
-        f'    cd.style.borderColor="var(--bd)";cd.style.background="#fff";cd.style.boxShadow="none";'
-        f'    bc.style.display="block";'
-        f'    document.getElementById("r-cam").checked=true;'
-        f'  }}'
+        f'  Object.keys(tipos).forEach(function(k){{'
+        f'    var el=document.getElementById("card-"+k);'
+        f'    if(!el)return;'
+        f'    if(k===t){{el.style.borderColor=tipos[k];el.style.background="linear-gradient(135deg,#faf5ff,#fff)";'
+        f'             el.style.boxShadow="0 0 0 3px "+tipos[k]+"33";}}'
+        f'    else{{el.style.borderColor="var(--bd)";el.style.background="#fff";el.style.boxShadow="none";}}'
+        f'    el.querySelector("input").checked=(k===t);'
+        f'  }});'
+        f'  document.getElementById("bloque-cambio").style.display=t==="cambio"?"block":"none";'
         f'}}'
-        f'</script>'))
+        f'</script>'
+    ))
 
 @app.route("/mis_devs")
 def mis_devs():
     if not li() and not is_guest(): return redirect("/")
     uid  = user_id_now()
-    devs = (db_query("SELECT * FROM devoluciones WHERE tienda_id=%s AND user=%s ORDER BY id DESC",
-                     (tid_now(), uid), fetchall=True) or []) if uid else []
-    col={"Pendiente":"t-am","Aprobada":"t-gr","Rechazada":"t-rd"}
-    filas="".join(f"<tr><td>#{d.get('codigo','')}</td><td>{str(d.get('motivo',''))[:40]}</td><td><span class='tag {col.get(d.get('estado',''),'t-gy')}'>{d.get('estado','')}</span></td><td>{d.get('fecha','')}</td></tr>" for d in devs)
-    return base("🔄 Mis Devoluciones",(
-        f'<div class="sec"><div class="sh"><h3>Mis Solicitudes de Devolución</h3></div>'
-        f'<div class="sb2"><div class="tw"><table><thead><tr><th>Pedido</th><th>Motivo</th><th>Estado</th><th>Fecha</th></tr></thead>'
-        f'<tbody>{"<tr><td colspan=4 class=tmuted>Sin solicitudes</td></tr>" if not filas else filas}</tbody></table></div></div></div>'))
+    devs = (db_query(
+        "SELECT * FROM devoluciones WHERE tienda_id=%s AND user=%s ORDER BY id DESC",
+        (tid_now(), uid), fetchall=True) or []) if uid else []
+
+    filas = ""
+    for d in devs:
+        est = d.get("estado","Solicitada")
+        cls, ico = ESTADOS_DEV.get(est, ("t-gy","•"))
+        tipo_k = d.get("tipo_dev", d.get("tipo_solicitud","reembolso"))
+        tipo_info = TIPOS_DEV.get(tipo_k, ("🔄","Solicitud",""))
+        filas += (
+            f"<tr>"
+            f"<td><strong style='color:var(--pr)'>#{d.get('codigo','')}</strong><br>"
+            f"<span style='font-size:.7rem;color:var(--mt)'>{d.get('fecha','')}</span></td>"
+            f"<td>{d.get('razon', str(d.get('motivo',''))[:35])}</td>"
+            f"<td><span title='{tipo_info[2]}'>{tipo_info[0]} {tipo_info[1]}</span></td>"
+            f"<td><strong style='color:var(--sc)'>{fmt(d.get('subtotal',0))}</strong></td>"
+            f"<td><span class='tag {cls}'>{ico} {est}</span></td>"
+            f"</tr>"
+        )
+
+    return base("🔄 Mis Devoluciones", (
+        f'<div class="sec"><div class="sh">'
+        f'<h3>Mis Solicitudes de Devolución ({len(devs)})</h3>'
+        f'<a href="/pedidos" class="btn bg bsm">← Mis pedidos</a></div>'
+        f'<div class="sb2"><div class="tw"><table>'
+        f'<thead><tr><th>Pedido</th><th>Razón</th><th>Tipo</th><th>Monto</th><th>Estado</th></tr></thead>'
+        f'<tbody>{"<tr><td colspan=5 class=tmuted style=text-align:center;padding:20px>Sin solicitudes aún.</td></tr>" if not filas else filas}'
+        f'</tbody></table></div>'
+        f'<div class="al a-i" style="font-size:.8rem;margin-top:12px">'
+        f'📞 Para consultas sobre tu devolución, contacta a la tienda directamente.</div>'
+        f'</div></div>'
+    ))
 
 # ================================================================
 #  ADMIN — PEDIDOS, DEVOLUCIONES
 # ================================================================
-@app.route("/admin_devs", methods=["GET", "POST"])
+@app.route("/admin_devs", methods=["GET","POST"])
 def admin_devs():
-    if not is_st(): return redirect("/")   # admin Y empleado pueden gestionar
-    tid = tid_now()
-    msg = ""
+    if not is_st(): return redirect("/")
+    tid = tid_now(); msg = ""
 
     if request.method == "POST":
-        did  = int(request.form.get("did", 0))
-        ac   = request.form.get("ac", "")
-        d    = db_query("SELECT * FROM devoluciones WHERE id=%s AND tienda_id=%s",
-                        (did, tid), fetchone=True)
+        did = int(request.form.get("did", 0))
+        ac  = request.form.get("ac", "")
+        d   = db_query("SELECT * FROM devoluciones WHERE id=%s AND tienda_id=%s",
+                       (did, tid), fetchone=True)
         if d:
-            cod  = d.get("codigo", "")
-            mto  = float(d.get("subtotal", 0))
-            tipo = d.get("tipo_solicitud", "devolucion")
-            met  = d.get("metodo_pago", "Efectivo")    # ver nota abajo
-            prod_cambio = d.get("producto_cambio", "")
+            cod      = d.get("codigo","")
+            mto      = float(d.get("subtotal", 0))
+            tipo_k   = d.get("tipo_dev", d.get("tipo_solicitud","reembolso"))
+            prod_cambio = d.get("producto_cambio","")
+            estado_actual = d.get("estado","Solicitada")
 
-            if ac == "ap":
-                # 1) Aprobar
-                db_query("UPDATE devoluciones SET estado='Aprobada' WHERE id=%s",
-                         (did,), commit=True)
+            if ac == "revision" and estado_actual == "Solicitada":
+                db_query("UPDATE devoluciones SET estado='En revisión' WHERE id=%s", (did,), commit=True)
+                msg = '<div class="al a-i">🔍 Marcada en revisión.</div>'
+
+            elif ac == "aprobar" and estado_actual in ("Solicitada","En revisión"):
+                db_query("UPDATE devoluciones SET estado='Aprobada' WHERE id=%s", (did,), commit=True)
                 db_query("UPDATE pedidos SET estado='Devolucion' WHERE codigo=%s AND tienda_id=%s",
                          (cod, tid), commit=True)
 
-                # 2) Registrar egreso en caja (devolución de dinero)
-                if tipo == "devolucion":
+                if tipo_k == "reembolso":
                     db_query(
-                        "INSERT INTO caja(tienda_id,tipo,monto,descripcion,fecha)"
-                        " VALUES(%s,'egreso',%s,%s,%s)",
-                        (tid, mto,
-                         f"Devolución aprobada {cod} — reembolso {met}", now()),
-                        commit=True)
+                        "INSERT INTO caja(tienda_id,tipo,monto,descripcion,fecha) VALUES(%s,'egreso',%s,%s,%s)",
+                        (tid, mto, f"Reembolso devolución {cod}", now()), commit=True)
 
-                # 3) Si es cambio, descontar el producto nuevo y reponer el viejo
-                if tipo == "cambio" and prod_cambio:
-                    prod_nuevo = db_query(
-                        "SELECT * FROM productos WHERE nombre=%s AND tienda_id=%s",
-                        (prod_cambio, tid), fetchone=True)
-                    if prod_nuevo and prod_nuevo["cantidad"] > 0:
+                elif tipo_k == "cambio" and prod_cambio:
+                    pnuevo = db_query("SELECT * FROM productos WHERE nombre=%s AND tienda_id=%s",
+                                      (prod_cambio, tid), fetchone=True)
+                    if pnuevo and pnuevo["cantidad"] > 0:
                         db_query("UPDATE productos SET cantidad=cantidad-1 WHERE id=%s",
-                                 (prod_nuevo["id"],), commit=True)
-                        db_query(
-                            "INSERT INTO movimientos(tienda_id,nombre,tipo,cant,motivo,fecha,user)"
-                            " VALUES(%s,%s,'salida',1,%s,%s,%s)",
-                            (tid, prod_cambio,
-                             f"Cambio por devolución pedido {cod}",
-                             now(), session.get("user", "")), commit=True)
+                                 (pnuevo["id"],), commit=True)
 
-                # 4) Reponer stock del producto original al inventario
+                # Reponer stock
                 ped = db_query("SELECT * FROM pedidos WHERE codigo=%s AND tienda_id=%s",
                                (cod, tid), fetchone=True)
                 if ped:
                     try:
-                        items_list = json.loads(ped.get("items") or "[]")
-                        for it in items_list:
-                            pr = db_query(
-                                "SELECT * FROM productos WHERE nombre=%s AND tienda_id=%s",
-                                (it["nombre"], tid), fetchone=True)
+                        for it in json.loads(ped.get("items") or "[]"):
+                            pr = db_query("SELECT * FROM productos WHERE nombre=%s AND tienda_id=%s",
+                                          (it["nombre"], tid), fetchone=True)
                             if pr:
                                 db_query("UPDATE productos SET cantidad=cantidad+%s WHERE id=%s",
                                          (it["cantidad"], pr["id"]), commit=True)
-                                db_query(
-                                    "INSERT INTO movimientos(tienda_id,nombre,tipo,cant,motivo,fecha,user)"
-                                    " VALUES(%s,%s,'entrada',%s,%s,%s,%s)",
-                                    (tid, it["nombre"], it["cantidad"],
-                                     f"Reposición por devolución {cod}",
-                                     now(), session.get("user", "")), commit=True)
-                    except Exception:
+                    except:
                         pass
 
-                db_query(
-                    "INSERT INTO notificaciones(tienda_id,mensaje,leida,fecha)"
-                    " VALUES(%s,%s,0,%s)",
-                    (tid,
-                     f"{'💸' if tipo=='devolucion' else '🔁'} Devolución {cod} aprobada. "
-                     f"{'Reembolso: ' + fmt(mto) if tipo=='devolucion' else 'Cambio: ' + prod_cambio}",
-                     now()), commit=True)
+                db_query("INSERT INTO notificaciones(tienda_id,mensaje,leida,fecha) VALUES(%s,%s,0,%s)",
+                         (tid, f"✅ Devolución {cod} aprobada.", now()), commit=True)
                 msg = '<div class="al a-s">✅ Devolución aprobada y stock actualizado.</div>'
 
-            elif ac == "re":
-                db_query("UPDATE devoluciones SET estado='Rechazada' WHERE id=%s",
-                         (did,), commit=True)
-                db_query(
-                    "INSERT INTO notificaciones(tienda_id,mensaje,leida,fecha)"
-                    " VALUES(%s,%s,0,%s)",
-                    (tid, f"❌ Devolución {cod} rechazada.", now()), commit=True)
+            elif ac == "rechazar" and estado_actual in ("Solicitada","En revisión"):
+                db_query("UPDATE devoluciones SET estado='Rechazada' WHERE id=%s", (did,), commit=True)
+                db_query("INSERT INTO notificaciones(tienda_id,mensaje,leida,fecha) VALUES(%s,%s,0,%s)",
+                         (tid, f"❌ Devolución {cod} rechazada.", now()), commit=True)
                 msg = '<div class="al a-d">❌ Solicitud rechazada.</div>'
 
-    devs = db_query(
+            elif ac == "finalizar" and estado_actual == "Aprobada":
+                db_query("UPDATE devoluciones SET estado='Finalizada' WHERE id=%s", (did,), commit=True)
+                msg = '<div class="al a-s">🏁 Devolución finalizada.</div>'
+
+            elif ac == "comprobante":
+                return redirect(f"/comprobante_dev/{did}")
+
+    f_est = request.args.get("est","")
+    devs  = db_query(
         "SELECT * FROM devoluciones WHERE tienda_id=%s ORDER BY id DESC",
         (tid,), fetchall=True) or []
-    col  = {"Pendiente": "t-am", "Aprobada": "t-gr", "Rechazada": "t-rd"}
+
+    if f_est:
+        devs = [d for d in devs if d.get("estado","") == f_est]
+
+    # Chips
+    total_est = {}
+    for d in (db_query("SELECT * FROM devoluciones WHERE tienda_id=%s", (tid,), fetchall=True) or []):
+        e = d.get("estado","Solicitada")
+        total_est[e] = total_est.get(e,0)+1
+
+    chips = f'<a href="/admin_devs" class="btn {"bp" if not f_est else "bg"} bsm">Todas ({sum(total_est.values())})</a> '
+    for e,(cls,ico) in ESTADOS_DEV.items():
+        n = total_est.get(e,0)
+        chips += f'<a href="/admin_devs?est={e}" class="btn {"bp" if f_est==e else "bg"} bsm">{ico} {e} ({n})</a> '
 
     filas = ""
+
     for d in devs:
-        est  = d.get("estado", "")
-        tipo = d.get("tipo_solicitud", "devolucion")
-        bts  = ""
-        if est == "Pendiente":
+        est = d.get("estado", "Solicitada")
+        cls, ico = ESTADOS_DEV.get(est, ("t-gy","•"))
+        tipo_k = d.get("tipo_dev", d.get("tipo_solicitud","reembolso"))
+        tipo_info = TIPOS_DEV.get(tipo_k, ("🔄","Solicitud",""))
+        razon = d.get("razon", "")
+        motivo = str(d.get("motivo",""))[:50]
+
+        did = d["id"]
+
+        bts = ""
+
+        if est == "Solicitada":
             bts = (
                 f"<form method='post' style='display:inline'>"
-                f"<input type='hidden' name='did' value='{d['id']}'>"
-                f"<input type='hidden' name='ac' value='ap'>"
-                f"<button class='btn bs bsm' onclick=\"return confirm('¿Aprobar esta solicitud?')\">"
-                f"✅ Aprobar</button></form> "
+                f"<input type='hidden' name='did' value='{did}'>"
+                f"<input type='hidden' name='ac' value='revision'>"
+                f"<button class='btn bg bsm'>🔍 Revisar</button></form> "
                 f"<form method='post' style='display:inline'>"
-                f"<input type='hidden' name='did' value='{d['id']}'>"
-                f"<input type='hidden' name='ac' value='re'>"
-                f"<button class='btn bd bsm' onclick=\"return confirm('¿Rechazar esta solicitud?')\">"
-                f"❌ Rechazar</button></form>"
+                f"<input type='hidden' name='did' value='{did}'>"
+                f"<input type='hidden' name='ac' value='aprobar'>"
+                f"<button class='btn bs bsm' onclick=\"return confirm('¿Aprobar?')\">✅ Aprobar</button></form> "
+                f"<form method='post' style='display:inline'>"
+                f"<input type='hidden' name='did' value='{did}'>"
+                f"<input type='hidden' name='ac' value='rechazar'>"
+                f"<button class='btn bd bsm' onclick=\"return confirm('¿Rechazar?')\">❌ Rechazar</button></form>"
             )
-        tipo_badge = (
-            f"<span class='tag t-pu'>💸 Devolución</span>"
-            if tipo == "devolucion"
-            else f"<span class='tag t-sk'>🔁 Cambio por: {d.get('producto_cambio','')}</span>"
-        )
+
+        elif est == "En revisión":
+            bts = (
+                f"<form method='post' style='display:inline'>"
+                f"<input type='hidden' name='did' value='{did}'>"
+                f"<input type='hidden' name='ac' value='aprobar'>"
+                f"<button class='btn bs bsm' onclick=\"return confirm('¿Aprobar?')\">✅ Aprobar</button></form> "
+                f"<form method='post' style='display:inline'>"
+                f"<input type='hidden' name='did' value='{did}'>"
+                f"<input type='hidden' name='ac' value='rechazar'>"
+                f"<button class='btn bd bsm'>❌ Rechazar</button></form>"
+            )
+
+        elif est == "Aprobada":
+            bts = (
+                f"<form method='post' style='display:inline'>"
+                f"<input type='hidden' name='did' value='{did}'>"
+                f"<input type='hidden' name='ac' value='finalizar'>"
+                f"<button class='btn bp bsm'>🏁 Finalizar</button></form> "
+                f"<a href='/comprobante_dev/{did}' class='btn bg bsm'>📄 Comprobante</a>"
+            )
+
+        elif est == "Finalizada":
+            bts = f"<a href='/comprobante_dev/{did}' class='btn bg bsm'>📄 Comprobante</a>"
+
         filas += (
             f"<tr>"
             f"<td><strong style='color:var(--pr)'>#{d.get('codigo','')}</strong><br>"
             f"<span style='font-size:.7rem;color:var(--mt)'>{d.get('fecha','')}</span></td>"
             f"<td>{d.get('user','')}</td>"
-            f"<td>{tipo_badge}<br>"
-            f"<span style='font-size:.75rem;color:var(--mt)'>{str(d.get('motivo',''))[:50]}</span></td>"
+            f"<td>{tipo_info[0]} <strong>{tipo_info[1]}</strong>"
+            f"{'<br><span style=font-size:.72rem;color:var(--mt)>→ ' + d.get('producto_cambio','') + '</span>' if d.get('producto_cambio') else ''}</td>"
+            f"<td>{razon}<br><span style='font-size:.72rem;color:var(--mt)'>{motivo}</span></td>"
             f"<td><strong style='color:var(--sc)'>{fmt(d.get('subtotal',0))}</strong></td>"
-            f"<td><span class='tag {col.get(est,'t-gy')}'>{est}</span></td>"
-            f"<td>{bts}</td>"
+            f"<td><span class='tag {cls}'>{ico} {est}</span></td>"
+            f"<td style='white-space:nowrap'>{bts}</td>"
             f"</tr>"
         )
 
     return base("🔄 Gestión de Devoluciones", (
         msg +
-        f'<div class="sec"><div class="sh">'
-        f'<h3>Solicitudes ({len(devs)})</h3></div>'
-        f'<div class="sb2"><div class="tw"><table>'
-        f'<thead><tr>'
-        f'<th>Pedido / Fecha</th><th>Cliente</th><th>Tipo / Motivo</th>'
-        f'<th>Monto</th><th>Estado</th><th>Acciones</th>'
-        f'</tr></thead>'
-        f'<tbody>{"<tr><td colspan=6 style=text-align:center;padding:20px;color:var(--mt)>Sin solicitudes</td></tr>" if not filas else filas}</tbody>'
-        f'</table></div></div></div>'
+        f'<div class="sec"><div class="sh"><h3>Devoluciones</h3></div>'
+        f'<div class="sb2">'
+        f'<div class="fr" style="flex-wrap:wrap;gap:6px;margin-bottom:16px">{chips}</div>'
+        f'<div class="tw"><table>'
+        f'<thead><tr><th>Pedido/Fecha</th><th>Cliente</th><th>Tipo</th>'
+        f'<th>Razón/Motivo</th><th>Monto</th><th>Estado</th><th>Acciones</th></tr></thead>'
+        f'<tbody>{"<tr><td colspan=7 style=text-align:center;padding:20px;color:var(--mt)>Sin solicitudes</td></tr>" if not filas else filas}'
+        f'</tbody></table></div></div></div>'
     ))
+@app.route("/comprobante_dev/<int:did>")
+def comprobante_dev(did):
+    """Genera  Factura comprobante de una devolución."""
+    if not li(): return redirect("/")
+    tid = tid_now(); t = get_tienda()
+    d = db_query("SELECT * FROM devoluciones WHERE id=%s AND tienda_id=%s", (did, tid), fetchone=True)
+    if not d: return redirect("/admin_devs")
+
+    tipo_k    = d.get("tipo_dev", d.get("tipo_solicitud","reembolso"))
+    tipo_info = TIPOS_DEV.get(tipo_k, ("🔄","Solicitud",""))
+    est       = d.get("estado","")
+
+    buf = io.BytesIO()
+    c   = pdf_canvas.Canvas(buf, pagesize=letter)
+    W, H = letter
+    pc = t.get("color","#4f46e5").lstrip("#")
+    try:
+        r = int(pc[0:2],16)/255; g = int(pc[2:4],16)/255; b = int(pc[4:6],16)/255
+    except:
+        r, g, b = 0.31, 0.27, 0.9
+
+    c.setFillColorRGB(r, g, b)
+    c.rect(0, H-80, W, 80, fill=True, stroke=False)
+    c.setFillColor(pdf_colors.white)
+    c.setFont("Helvetica-Bold", 18); c.drawString(40, H-44, t.get("nombre","GestorPro"))
+    c.setFont("Helvetica", 8); c.drawString(40, H-60, f"NIT: {t.get('nit','')} | Tel: {t.get('telefono','')}")
+
+    c.setFillColor(pdf_colors.HexColor("#1e293b"))
+    c.setFont("Helvetica-Bold", 14); c.drawString(40, H-108, "COMPROBANTE DE DEVOLUCIÓN")
+    c.setFont("Helvetica", 9)
+    datos = [
+        f"N° Solicitud: DEV-{d['id']:04d}",
+        f"Pedido: #{d.get('codigo','')}",
+        f"Cliente: {d.get('user','')}",
+        f"Tipo: {tipo_info[0]} {tipo_info[1]}",
+        f"Razón: {d.get('razon', '')}",
+        f"Estado: {est}",
+        f"Monto: {fmt(d.get('subtotal',0))}",
+        f"Fecha solicitud: {d.get('fecha','')}",
+        f"Generado: {now()}",
+    ]
+    yy = H - 132
+    for dt in datos:
+        c.drawString(40, yy, dt); yy -= 16
+
+    if d.get("motivo"):
+        yy -= 8
+        c.setFont("Helvetica-Bold", 8); c.drawString(40, yy, "Descripción:")
+        yy -= 14; c.setFont("Helvetica", 8)
+        for line in [d["motivo"][i:i+80] for i in range(0, len(d["motivo"]), 80)]:
+            c.drawString(40, yy, line); yy -= 13
+
+    c.setFillColor(pdf_colors.HexColor("#64748b")); c.setFont("Helvetica", 7)
+    c.drawCentredString(W/2, 48, f"GestorPro  |  {t.get('nombre','')}  |  Comprobante generado: {now()}")
+    c.save(); buf.seek(0)
+    return send_file(buf, as_attachment=True,
+                     download_name=f"Devolucion_DEV{d['id']:04d}.pdf",
+                     mimetype="application/pdf")
 
 @app.route("/admin_pedidos")
 def admin_pedidos():
@@ -4552,7 +6970,7 @@ def admin_pedidos():
         f'<a href="/admin_pedidos_limpiar" class="btn bd bsm" '
         f'onclick="return confirm(\'Eliminar pedidos Entregados y Cancelados?\')">🗑️ Limpiar</a>'
         f'<a href="/pdf_pedidos_rango?desde={f_desde}&hasta={f_hasta}" '
-        f'target="_blank" class="btn bg bsm">📄 PDF</a>'
+        f'target="_blank" class="btn bg bsm">📄  Factura</a>'
         f'</div></div>'
         f'<div class="sb2">'
         f'<div class="fr" style="flex-wrap:wrap;gap:5px;margin-bottom:12px">{filtros_html}</div>'
@@ -4869,48 +7287,117 @@ def promociones():
 # ================================================================
 #  PDF FACTURA
 # ================================================================
-@app.route("/pdf_pedido/<int:pid>")
-def pdf_pedido(pid):
+@app.route("/factura/<int:pid>")
+@app.route("/pdf_pedido/<int:pid>")   # alias para compatibilidad
+def factura_pedido(pid):
     if not li(): return redirect("/")
-    tid=tid_now(); t=get_tienda()
-    p=db_query("SELECT * FROM pedidos WHERE id=%s AND tienda_id=%s",(pid,tid),fetchone=True)
-    if not p: return redirect("/mis_pedidos")
-    items_list=[]
-    try: items_list=json.loads(p.get("items") or "[]")
+    tid = tid_now(); t = get_tienda()
+    p = db_query("SELECT * FROM pedidos WHERE id=%s AND tienda_id=%s", (pid, tid), fetchone=True)
+    if not p: return redirect("/pedidos")
+
+    items_list = []
+    try: items_list = json.loads(p.get("items") or "[]")
     except: pass
-    buf=io.BytesIO(); c=pdf_canvas.Canvas(buf,pagesize=letter); W,H=letter
-    pc=t.get("color","#4f46e5").lstrip("#"); r=int(pc[0:2],16)/255; g=int(pc[2:4],16)/255; b=int(pc[4:6],16)/255
-    # Header
-    c.setFillColorRGB(r,g,b); c.rect(0,H-80,W,80,fill=True,stroke=False)
-    c.setFillColor(pdf_colors.white); c.setFont("Helvetica-Bold",18); c.drawString(40,H-44,t.get("nombre","GestorPro"))
-    c.setFont("Helvetica",8); c.drawString(40,H-60,f"NIT: {t.get('nit','')} | {t.get('ciudad','')} | Tel: {t.get('telefono','')}")
-    # Recibo
-    c.setFillColor(pdf_colors.HexColor("#1e293b")); c.setFont("Helvetica-Bold",13); c.drawString(40,H-110,"RECIBO DE COMPRA")
-    c.setFont("Helvetica",9)
-    c.drawString(40,H-128,f"Código: {p.get('codigo','')}")
-    c.drawString(40,H-144,f"Fecha: {p.get('fecha','')}")
-    c.drawString(40,H-160,f"Cliente: {p.get('user','')}")
-    c.drawString(40,H-176,f"Pago: {p.get('pago','')}  |  Entrega: {p.get('entrega','')}")
-    if p.get("direccion"): c.drawString(40,H-192,f"Dirección: {p.get('direccion','')}")
-    # Items
-    ty=H-232; c.setFillColorRGB(r,g,b); c.setFont("Helvetica-Bold",8)
-    c.drawString(40,ty+6,"Producto"); c.drawString(300,ty+6,"Cant"); c.drawString(370,ty+6,"Precio"); c.drawRightString(W-40,ty+6,"Subtotal")
-    c.setFillColor(pdf_colors.HexColor("#1e293b")); c.setFont("Helvetica",8); ry=ty-20
+
+    buf = io.BytesIO()
+    c   = pdf_canvas.Canvas(buf, pagesize=letter)
+    W, H = letter
+    pc = t.get("color","#4f46e5").lstrip("#")
+    try:
+        r = int(pc[0:2],16)/255; g = int(pc[2:4],16)/255; b = int(pc[4:6],16)/255
+    except:
+        r, g, b = 0.31, 0.27, 0.9
+
+    # ── Encabezado ────────────────────────────────────────────────────
+    c.setFillColorRGB(r, g, b)
+    c.rect(0, H-90, W, 90, fill=True, stroke=False)
+    c.setFillColor(pdf_colors.white)
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(40, H-46, t.get("nombre","GestorPro"))
+    c.setFont("Helvetica", 8)
+    c.drawString(40, H-62, f"NIT: {t.get('nit','')}  |  {t.get('ciudad','')}  |  Tel: {t.get('telefono','')}")
+    c.drawString(40, H-76, f"Dirección: {t.get('direccion','')}  |  {t.get('horario','')}")
+
+    # ── Título factura ────────────────────────────────────────────────
+    c.setFillColor(pdf_colors.HexColor("#1e293b"))
+    c.setFont("Helvetica-Bold", 15)
+    c.drawString(40, H-118, "FACTURA DE COMPRA")
+    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(pdf_colors.HexColor("#64748b"))
+    c.drawRightString(W-40, H-118, f"N° {p.get('codigo','')}")
+
+    # ── Datos del pedido ──────────────────────────────────────────────
+    c.setFont("Helvetica", 9); c.setFillColor(pdf_colors.HexColor("#1e293b"))
+    datos = [
+        f"Código: {p.get('codigo','')}",
+        f"Fecha: {p.get('fecha','')}",
+        f"Cliente: {p.get('user','')}",
+        f"Forma de pago: {p.get('pago','')}",
+        f"Tipo de entrega: {str(p.get('entrega','')).capitalize()}",
+    ]
+    if p.get("direccion"):
+        datos.append(f"Dirección de entrega: {p.get('direccion','')}")
+    yy = H - 140
+    for d in datos:
+        c.drawString(40, yy, d); yy -= 16
+
+    # ── Tabla de ítems ────────────────────────────────────────────────
+    yy -= 10
+    c.setFillColorRGB(r, g, b)
+    c.rect(32, yy-4, W-64, 20, fill=True, stroke=False)
+    c.setFillColor(pdf_colors.white); c.setFont("Helvetica-Bold", 8)
+    c.drawString(40,  yy+3, "Producto")
+    c.drawString(300, yy+3, "Cant.")
+    c.drawString(370, yy+3, "Precio Unit.")
+    c.drawRightString(W-40, yy+3, "Subtotal")
+    yy -= 20
+
     if not items_list:
-        items_list=[{"nombre":p.get("producto",""),"cantidad":p.get("cantidad",1),"precio":float(p.get("precio",0)),"subtotal":float(p.get("subtotal",0))}]
-    for it in items_list:
-        c.drawString(40,ry,str(it.get("nombre",""))[:40]); c.drawString(300,ry,str(it.get("cantidad","")))
-        c.drawString(370,ry,"$ "+"{:,}".format(int(float(it.get("precio",0)))).replace(",","."))
-        c.drawRightString(W-40,ry,"$ "+"{:,}".format(int(float(it.get("subtotal",0)))).replace(",",".")); ry-=18
-        c.setStrokeColor(pdf_colors.HexColor("#e2e8f4")); c.line(32,ry+9,W-32,ry+9)
-    ry-=10; c.setFillColor(pdf_colors.HexColor("#15803d")); c.setFont("Helvetica-Bold",11)
-    c.drawRightString(W-40,ry+4,"TOTAL: $ "+"{:,}".format(int(float(p.get("subtotal",0)))).replace(",","."))
-    # Footer
-    c.setFillColor(pdf_colors.HexColor("#64748b")); c.setFont("Helvetica",7)
-    c.drawCentredString(W/2,48,f"GestorPro | {t.get('nombre','')} | {t.get('ciudad','')} | {now()} | ¡Gracias por su compra!")
-    if t.get("whatsapp"): c.drawCentredString(W/2,36,f"WhatsApp: +{t['whatsapp']}")
+        items_list = [{"nombre": p.get("producto",""), "cantidad": p.get("cantidad",1),
+                       "precio": float(p.get("precio",0)), "subtotal": float(p.get("subtotal",0))}]
+
+    c.setFillColor(pdf_colors.HexColor("#1e293b")); c.setFont("Helvetica", 8)
+    for i, it in enumerate(items_list):
+        if i % 2 == 0:
+            c.setFillColor(pdf_colors.HexColor("#f8faff"))
+            c.rect(32, yy-5, W-64, 18, fill=True, stroke=False)
+        c.setFillColor(pdf_colors.HexColor("#1e293b"))
+        c.drawString(40,  yy, str(it.get("nombre",""))[:42])
+        c.drawString(300, yy, str(it.get("cantidad","")))
+        c.drawString(370, yy, "$ " + "{:,}".format(int(float(it.get("precio",0)))).replace(",","."))
+        c.drawRightString(W-40, yy, "$ " + "{:,}".format(int(float(it.get("subtotal",0)))).replace(",","."))
+        yy -= 20
+        c.setStrokeColor(pdf_colors.HexColor("#e2e8f4"))
+        c.line(32, yy+14, W-32, yy+14)
+
+    # ── Total ─────────────────────────────────────────────────────────
+    yy -= 8
+    c.setFillColorRGB(r, g, b)
+    c.rect(32, yy-8, W-64, 28, fill=True, stroke=False)
+    c.setFillColor(pdf_colors.white); c.setFont("Helvetica-Bold", 12)
+    total_fmt = "$ " + "{:,}".format(int(float(p.get("subtotal",0)))).replace(",",".")
+    c.drawRightString(W-48, yy+6, f"TOTAL A PAGAR: {total_fmt}")
+
+    # ── Estado ────────────────────────────────────────────────────────
+    yy -= 36
+    lbl = {
+        "Pendiente":"⏳ Pendiente por entregar","Aprobado":"Aprobado","En camino":"En camino",
+        "Entregado":"Entregado","Cancelado":"Cancelado","Devolucion":"En devolución"
+    }
+    c.setFont("Helvetica-Bold", 8); c.setFillColor(pdf_colors.HexColor("#15803d"))
+    c.drawString(40, yy, f"Estado: {lbl.get(p.get('estado',''), p.get('estado',''))}")
+
+    # ── Pie de página ─────────────────────────────────────────────────
+    c.setFillColor(pdf_colors.HexColor("#94a3b8")); c.setFont("Helvetica", 7)
+    c.drawCentredString(W/2, 52, f"GestorPro  |  {t.get('nombre','')}  |  {t.get('ciudad','')}  |  Generado: {now()}")
+    c.drawCentredString(W/2, 40, "Este documento es una factura de compra válida.")
+    if t.get("whatsapp"):
+        c.drawCentredString(W/2, 28, f"WhatsApp: +{t['whatsapp']}  |  ¡Gracias por su compra!")
+
     c.save(); buf.seek(0)
-    return send_file(buf,as_attachment=True,download_name=f"Recibo_{p.get('codigo','GP')}.pdf",mimetype="application/pdf")
+    return send_file(buf, as_attachment=True,
+                     download_name=f"Factura_{p.get('codigo','GP')}.pdf",
+                     mimetype="application/pdf")
 
 # ================================================================
 #  EXPORTAR PDF POR MÓDULO Y RANGO DE FECHAS
@@ -4922,13 +7409,13 @@ def exportar_pdf(modulo):
     fecha_ini=request.form.get("fecha_ini","") or request.args.get("fi","")
     fecha_fin=request.form.get("fecha_fin","") or request.args.get("ff","")
     if request.method=="GET":
-        return base(f"📄 Exportar PDF — {modulo.capitalize()}",(
-            f'<div class="sec" style="max-width:480px;margin:auto"><div class="sh"><h3>📄 Exportar {modulo.capitalize()} en PDF</h3></div>'
+        return base(f"📄 Exportar  Factura — {modulo.capitalize()}",(
+            f'<div class="sec" style="max-width:480px;margin:auto"><div class="sh"><h3>📄 Exportar {modulo.capitalize()} en  Factura</h3></div>'
             f'<div class="sb2">'
             f'<form method="post" style="display:flex;flex-direction:column;gap:12px">'
             f'<div class="fg"><label>Fecha inicio</label><input type="date" name="fecha_ini" value="{hoy()}"></div>'
             f'<div class="fg"><label>Fecha fin</label><input type="date" name="fecha_fin" value="{hoy()}"></div>'
-            f'<button class="btn bp blg">📄 Generar PDF</button></form></div></div>'))
+            f'<button class="btn bp blg">📄 Generar Factura</button></form></div></div>'))
     # Generar PDF
     buf=io.BytesIO(); c=pdf_canvas.Canvas(buf,pagesize=A4); W,H=A4
     pc=t.get("color","#4f46e5").lstrip("#"); r=int(pc[0:2],16)/255; g=int(pc[2:4],16)/255; b=int(pc[4:6],16)/255
@@ -5050,7 +7537,7 @@ def proveedores():
         f'<div class="fg"><label>Precio unitario</label><input type="number" name="precio_unit" min="0" step="0.01"></div>'
         f'<div class="fg"><label>Condición de pago</label><input type="text" name="condicion" placeholder="Pago a 30 días"></div>'
         f'</div><div class="mt16"><button class="btn bp">📤 Enviar Solicitud</button></div></form></div></div>'
-        f'<div class="sec"><div class="sh"><h3>Historial ({len(provs)})</h3><a href="/exportar_pdf/proveedores" class="btn bg bsm">📄 PDF</a></div>'
+        f'<div class="sec"><div class="sh"><h3>Historial ({len(provs)})</h3><a href="/exportar_pdf/proveedores" class="btn bg bsm">📄 Factura</a></div>'
         f'<div class="sb2"><div class="tw"><table><thead><tr><th>Proveedor</th><th>Contacto</th><th>Tel.</th><th>Producto</th><th>Cant.</th><th>P.Unit</th><th>Condición</th><th>Fecha</th><th>Estado</th><th>Acción</th></tr></thead>'
         f'<tbody>{"<tr><td colspan=10 class=tmuted>Sin solicitudes</td></tr>" if not filas else filas}</tbody></table></div></div></div>'))
 
@@ -5104,25 +7591,108 @@ def prov():
 @app.route("/prov_catalogo")
 def prov_catalogo():
     if not is_pv(): return redirect("/")
-    prods=db_query("SELECT * FROM productos WHERE tienda_id=%s ORDER BY nombre",(tid_now(),),fetchall=True) or []
-    filas="".join(f"<tr><td><strong>{p['nombre']}</strong></td><td>{p.get('categoria','')}</td><td>{p['cantidad']} {p.get('unidad','')}</td><td>{p.get('stock_min',5)}</td><td><span class='tag {'t-rd' if p['cantidad']<=p.get('stock_min',5) else 't-gr'}'>{'Necesita reposición' if p['cantidad']<=p.get('stock_min',5) else 'Stock OK'}</span></td></tr>" for p in prods)
-    return base("📦 Catálogo de la Tienda",(
-        '<div class="al a-i">Los productos con stock bajo pueden requerir tu suministro urgente.</div>'
-        f'<div class="sec"><div class="sh"><h3>Inventario ({len(prods)} productos)</h3></div>'
-        f'<div class="sb2"><div class="tw"><table><thead><tr><th>Nombre</th><th>Categoría</th><th>Stock Actual</th><th>Stock Mín</th><th>Estado</th></tr></thead>'
-        f'<tbody>{"<tr><td colspan=5 class=tmuted>Sin productos</td></tr>" if not filas else filas}</tbody></table></div></div></div>'))
+    tid  = tid_now()
+    u    = get_su()
+    nom  = str(u.get("nombre","")) if u else ""
+    usr  = str(session.get("user",""))
+
+    # Productos asignados a este proveedor
+    prods_asig = db_query(
+        "SELECT * FROM productos WHERE tienda_id=%s AND (proveedor_nombre LIKE %s OR proveedor_nombre LIKE %s) ORDER BY nombre",
+        (tid, f"%{nom}%", f"%{usr}%"), fetchall=True) or []
+    # También mostrar los que están bajo stock (para que sepa cuáles necesitan reposición)
+    bajo_stock = db_query(
+        "SELECT * FROM productos WHERE tienda_id=%s AND cantidad<=stock_min ORDER BY cantidad ASC",
+        (tid,), fetchall=True) or []
+
+    def prod_row(p, asignado=True):
+        cant = p["cantidad"]
+        smin = p.get("stock_min",5)
+        has_b = bool(p.get("img_blob"))
+        img = f"/img_prod/{p['id']}" if has_b else (p.get("img") or "")
+        if cant == 0:   tag = "<span class='tag t-rd'>🚨 Sin stock</span>"
+        elif cant<=smin: tag = "<span class='tag t-am'>⚠️ Stock bajo</span>"
+        else:            tag = "<span class='tag t-gr'>✅ OK</span>"
+        img_html = (f'<img src="{img}" style="width:36px;height:36px;object-fit:cover;'
+                    f'border-radius:8px;border:1px solid var(--bd)" '
+                    f'onerror="this.style.display=\'none\'">' if img else "")
+        return (
+            f"<tr>"
+            f"<td>{img_html}</td>"
+            f"<td><strong>{p['nombre']}</strong>"
+            f"<br><span style='font-size:.7rem;color:var(--mt)'>{p.get('categoria','')}"
+            f"{'›'+p.get('subcategoria','') if p.get('subcategoria') else ''}</span></td>"
+            f"<td>{cant} {p.get('unidad','')}</td>"
+            f"<td style='color:var(--mt)'>{smin}</td>"
+            f"<td>{tag}</td>"
+            f"</tr>"
+        )
+
+    filas_asig = "".join(prod_row(p) for p in prods_asig)
+    filas_bajo = "".join(prod_row(p, False) for p in bajo_stock
+                         if p["id"] not in {x["id"] for x in prods_asig})
+
+    return base("📦 Mis Productos Asignados", (
+        f'<div class="al a-k" style="margin-bottom:16px">'
+        f'Como proveedor de <strong>{get_tienda().get("nombre","")}</strong>, '
+        f'aquí ves los productos que debes surtir.</div>'
+
+        + (f'<div class="sec"><div class="sh"><h3>📦 Mis Productos ({len(prods_asig)})</h3></div>'
+           f'<div class="sb2"><div class="tw"><table>'
+           f'<thead><tr><th></th><th>Producto</th><th>Stock Actual</th><th>Stock Mín.</th><th>Estado</th></tr></thead>'
+           f'<tbody>{"<tr><td colspan=5 class=tmuted>No tienes productos asignados aún.</td></tr>" if not filas_asig else filas_asig}'
+           f'</tbody></table></div></div></div>'
+           if True else "")
+
+        + (f'<div class="sec"><div class="sh"><h3>⚠️ Otros productos con stock bajo ({len(bajo_stock)})</h3>'
+           f'<span style="font-size:.75rem;color:var(--mt)">Pueden requerir tu atención</span></div>'
+           f'<div class="sb2"><div class="tw"><table>'
+           f'<thead><tr><th></th><th>Producto</th><th>Stock Actual</th><th>Stock Mín.</th><th>Estado</th></tr></thead>'
+           f'<tbody>{"<tr><td colspan=5 class=tmuted>Sin productos bajo stock.</td></tr>" if not filas_bajo else filas_bajo}'
+           f'</tbody></table></div></div></div>'
+           if bajo_stock else "")
+
+        + f'<a href="/prov" class="btn bg bbl mt16">← Volver al panel</a>'
+    ))
 
 @app.route("/prov_pedidos")
 def prov_pedidos():
     if not is_pv(): return redirect("/")
-    u=get_su(); nom=str(u.get("nombre","")) if u else ""; usr=str(session.get("user",""))
-    provs=db_query("SELECT * FROM proveedores WHERE tienda_id=%s AND (nombre LIKE %s OR contacto LIKE %s) ORDER BY id DESC",
-                   (tid_now(),f"%{nom}%",f"%{usr}%"),fetchall=True) or []
-    filas="".join(f"<tr><td><strong>{p.get('producto','')}</strong></td><td>{p.get('cantidad','')}</td><td>{p.get('condicion','')}</td><td><span class='tag {'t-gr' if p.get('estado')=='Recibido' else 't-am'}'>{p.get('estado','')}</span></td><td>{p.get('fecha','')}</td></tr>" for p in provs)
-    return base("📋 Mis Solicitudes",(
-        f'<div class="sec"><div class="sh"><h3>Pedidos Relacionados</h3></div>'
-        f'<div class="sb2"><div class="tw"><table><thead><tr><th>Producto</th><th>Cantidad</th><th>Condición</th><th>Estado</th><th>Fecha</th></tr></thead>'
-        f'<tbody>{"<tr><td colspan=5 class=tmuted>No hay pedidos relacionados contigo aún.</td></tr>" if not filas else filas}</tbody></table></div></div></div>'))
+    u   = get_su()
+    nom = str(u.get("nombre","")) if u else ""
+    usr = str(session.get("user",""))
+    tid = tid_now()
+    provs = db_query(
+        "SELECT * FROM proveedores WHERE tienda_id=%s AND (nombre LIKE %s OR contacto LIKE %s) ORDER BY id DESC",
+        (tid, f"%{nom}%", f"%{usr}%"), fetchall=True) or []
+
+    filas = ""
+    for p in provs:
+        rec = p.get("estado") == "Recibido"
+        tag = f"<span class='tag {'t-gr' if rec else 't-am'}'>{p.get('estado','')}</span>"
+        filas += (
+            f"<tr>"
+            f"<td><strong>{p.get('producto','')}</strong></td>"
+            f"<td>{p.get('cantidad','')}</td>"
+            f"<td>{fmt(p.get('precio_unit',0))}</td>"
+            f"<td>{p.get('condicion','')}</td>"
+            f"<td>{tag}</td>"
+            f"<td style='font-size:.75rem;color:var(--mt)'>{p.get('fecha','')}</td>"
+            f"</tr>"
+        )
+
+    return base("📋 Mis Solicitudes de Abastecimiento", (
+        f'<div class="sec"><div class="sh">'
+        f'<h3>Pedidos Asignados ({len(provs)})</h3>'
+        f'<a href="/prov_catalogo" class="btn bg bsm">← Catálogo</a></div>'
+        f'<div class="sb2">'
+        + (f'<div class="al a-i" style="margin-bottom:12px">📋 Estos son los pedidos de abastecimiento que han sido generados para ti.</div>' if provs else "")
+        + f'<div class="tw"><table>'
+        f'<thead><tr><th>Producto</th><th>Cantidad</th><th>P. Unit.</th><th>Condición</th><th>Estado</th><th>Fecha</th></tr></thead>'
+        f'<tbody>{"<tr><td colspan=6 class=tmuted style=text-align:center;padding:20px>No hay pedidos relacionados contigo aún.</td></tr>" if not filas else filas}'
+        f'</tbody></table></div></div></div>'
+        f'<a href="/prov" class="btn bg bbl mt16">← Panel</a>'
+    ))
 
 # ================================================================
 #  DOMICILIARIO
@@ -5466,7 +8036,7 @@ def _caja():
         f'</div></div>'
 
         f'<div class="sec"><div class="sh"><h3>Movimientos Recientes</h3>'
-        f'<a href="/pdf_caja" class="btn bg bsm">📄 PDF</a></div>'
+        f'<a href="/pdf_caja" class="btn bg bsm">📄  Factura</a></div>'
         f'<div class="sb2"><div class="tw"><table>'
         f'<thead><tr><th>Tipo</th><th>Monto</th><th>Descripción</th><th>Fecha</th><th>Borrar</th></tr></thead>'
         f'<tbody>{"<tr><td colspan=5 class=tmuted>Sin movimientos</td></tr>" if not filas else filas}</tbody>'
@@ -5504,7 +8074,7 @@ def reportes():
                  f"<td><span class='tag {'t-rd' if p['cantidad']<=p.get('stock_min',5) else 't-gr'}'>{'⚠ Bajo' if p['cantidad']<=p.get('stock_min',5) else '✅ OK'}</span></td></tr>"
                  for p in prods)
     return base("📈 Reportes y Análisis",(
-        f'<div class="sec"><div class="sh"><h3>📄 Exportar PDF por rango</h3></div><div class="sb2">'
+        f'<div class="sec"><div class="sh"><h3>📄 Exportar  Factura por rango</h3></div><div class="sb2">'
         f'<form method="get" action="/pdf_reporte" target="_blank" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">'
         f'<div class="fg"><label>Desde</label><input type="date" name="desde" value="{f_desde}"></div>'
         f'<div class="fg"><label>Hasta</label><input type="date" name="hasta" value="{f_hasta}"></div>'
@@ -5514,7 +8084,7 @@ def reportes():
         f'<option value="caja">💰 Caja</option>'
         f'<option value="inventario">📦 Inventario</option>'
         f'</select></div>'
-        f'<button class="btn bp">📄 Generar PDF</button>'
+        f'<button class="btn bp">📄 Generar  Factura</button>'
         f'<a href="/pdf_reporte?desde={str((datetime.now()-timedelta(days=15)).strftime("%Y-%m-%d"))}&hasta={hoy()}&sec=todo" target="_blank" class="btn bg bsm">📋 Últimos 15 días</a>'
         f'<a href="/pdf_reporte?desde={hoy()[:8]}01&hasta={hoy()}&sec=todo" target="_blank" class="btn bg bsm">📅 Este mes</a>'
         f'</form></div></div>'
@@ -6848,6 +9418,97 @@ def _bot_faq(msg, t, productos, promos):
                 f"🏙️ {ciu}\n"
                 f"⏰ {hor}\n\n"
                 f"O habla con nuestro agente en vivo 👇"), None, True
+# ── 17B. PRECIO DE PRODUCTO ESPECÍFICO ───────────────────────
+    if any(w in tl for w in ["cuánto cuesta","cuanto cuesta","cuánto vale","cuanto vale",
+                              "precio de","cuánto es","cuanto es","a cuanto","a cómo",
+                              "valor de","costo de","cuánto cobran","precios de"]):
+        prod_m = buscar_prod(tl)
+        if prod_m:
+            disp = prod_m.get("cantidad",0) > 0
+            return (f"💰 **{prod_m['nombre']}:**\n\n"
+                    f"Precio: **{fmt(prod_m['precio'])}** / {prod_m.get('unidad','u')}\n"
+                    f"{'📦 Stock: '+str(prod_m['cantidad'])+' '+str(prod_m.get('unidad','uds')) if disp else '❌ **Sin stock actualmente**'}\n\n"
+                    f"{'🛒 ¡Puedes agregarlo al carrito!' if disp else '📲 Consulta por '+wa_lnk}"), prod_m, True
+        # Sin producto detectado: mostrar lista de precios
+        txt = f"💰 **Precios en {nom}:**\n\n"
+        disp_list = [p for p in productos if p.get("cantidad",0) > 0]
+        for p in disp_list[:15]:
+            txt += f"• {p['nombre']}: **{fmt(p['precio'])}** / {p.get('unidad','u')}\n"
+        if not disp_list:
+            txt = f"No tenemos productos disponibles en este momento 😔"
+        return txt, primer_con_img(), True
+
+    # ── 17C. STOCK / DISPONIBILIDAD ESPECÍFICA ────────────────────
+    if any(w in tl for w in ["hay","tienen","tienen disponible","queda","quedan","stock de",
+                              "existe","tienes","disponible","hay existencia","cuántos quedan",
+                              "cuanto queda","cuánto queda"]):
+        prod_m = buscar_prod(tl)
+        if prod_m:
+            disp = prod_m.get("cantidad",0) > 0
+            cant = prod_m.get("cantidad",0)
+            return (f"{'✅' if disp else '❌'} **{prod_m['nombre']}**\n\n"
+                    + (f"📦 Stock disponible: **{cant} {prod_m.get('unidad','uds')}**\n"
+                       f"💰 Precio: **{fmt(prod_m['precio'])}**\n\n"
+                       f"🛒 ¡Agrégalo al carrito ahora!" if disp
+                       else f"😔 **Agotado** en este momento.\n"
+                            f"📲 Consulta reposición: {wa_lnk}")), prod_m, True
+
+    # ── 17D. BÚSQUEDA MÚLTIPLE ────────────────────────────────────
+    if any(w in tl for w in ["busco","buscar","necesito","quiero","quisiera","me das",
+                              "me puede dar","me puede vender","tienes algo de","algo de",
+                              "qué tienen de","que tienen de"]):
+        prod_m = buscar_prod(tl)
+        if prod_m:
+            disp = prod_m.get("cantidad",0) > 0
+            return (f"{'✅' if disp else '❌'} Encontré **{prod_m['nombre']}**\n\n"
+                    f"💰 {fmt(prod_m['precio'])} / {prod_m.get('unidad','u')}\n"
+                    f"{'📦 '+str(prod_m['cantidad'])+' disponible' if disp else '😔 Sin stock'}\n\n"
+                    f"{'¿Lo agrego al carrito? Ve a 🛒 Tienda para comprarlo.' if disp else '¿Te interesa otro producto?'}"), prod_m, True
+
+    # ── 17E. CALIFICACIONES / RESEÑAS ────────────────────────────
+    if any(w in tl for w in ["bueno","malo","calidad","reseña","reseñas","opinión","opiniones",
+                              "recomiendan","vale la pena","es bueno","es rico","como es",
+                              "cómo es","qué tal","que tal","sabor","fresco","confiable"]):
+        return (f"⭐ **{nom}** es un negocio de confianza en {ciu}.\n\n"
+                f"Nuestros productos son frescos y de calidad.\n"
+                f"¡Miles de clientes satisfechos nos respaldan! 🙌\n\n"
+                f"¿Tienes alguna pregunta específica sobre algún producto?\n"
+                f"Con gusto te ayudo 😊"), None, True
+
+    # ── 17F. TIEMPO DE ENTREGA ────────────────────────────────────
+    if any(w in tl for w in ["cuánto demora","cuanto demora","tiempo de entrega","cuándo llega",
+                              "cuando llega","cuánto tarda","cuanto tarda","demorar","demora",
+                              "entrega rápida","entrega express","urgente","ya mismo","hoy"]):
+        return (f"⏱️ **Tiempos de entrega en {nom}:**\n\n"
+                f"🏪 **Recogida en tienda:** Inmediato\n"
+                f"   Haz tu pedido y recoge cuando quieras.\n\n"
+                f"🏍️ **Domicilio en {ciu}:** 30 – 60 min\n"
+                f"   (Según distancia y demanda del momento)\n\n"
+                f"📞 Para pedidos urgentes llámanos: {tel or wa_lnk}"), None, True
+
+    # ── 17G. MÍNIMO DE PEDIDO ─────────────────────────────────────
+    if any(w in tl for w in ["mínimo","minimo","pedido mínimo","pedido minimo","monto mínimo",
+                              "cuanto es lo mínimo","valor mínimo","compra mínima"]):
+        return (f"🛒 **Pedido mínimo en {nom}:**\n\n"
+                f"✅ **No hay pedido mínimo.** ¡Puedes pedir lo que necesites!\n\n"
+                f"Agrega cualquier producto al carrito y confirma tu compra 😊"), None, True
+
+    # ── 17H. SALUDO / INICIO ─────────────────────────────────────
+    if any(w in tl for w in ["hola","buenos días","buenos dias","buenas tardes","buenas noches",
+                              "buenas","hey","ey","qué hay","que hay","cómo están","como estan",
+                              "saludos","buen día"]):
+        from datetime import datetime as _dt
+        hora_h = _dt.now().hour
+        saludo = "Buenos días" if hora_h < 12 else "Buenas tardes" if hora_h < 19 else "Buenas noches"
+        n_disp = len([p for p in productos if p.get("cantidad",0) > 0])
+        return (f"👋 {saludo}! Bienvenido(a) a **{nom}**.\n\n"
+                f"Soy tu asistente virtual 🤖\n"
+                f"Tenemos **{n_disp} productos disponibles** hoy.\n\n"
+                f"¿En qué te puedo ayudar?\n"
+                f"• Ver productos y precios\n"
+                f"• Consultar disponibilidad\n"
+                f"• Info de domicilios y pagos\n"
+                f"• Hablar con un agente 💬"), None, True
 
     # ── 17. PRODUCTO DIRECTO (detectado por nombre) ───────────────
     prod_m = buscar_prod(tl)
@@ -6977,204 +9638,440 @@ def bot_ia_respuesta(tid, historial_msgs, contexto_tienda, productos, promos):
 def _generar_opciones(texto, productos, promos):
     return []
 
-
-# ──────────────────────────────────────────────────────────────────
-#  FUNCIÓN BOT — CELULAR CON MENÚ VERTICAL
-# ──────────────────────────────────────────────────────────────────
-
+# ================================================================
+#  ASISTENTE VIRTUAL — FULL SCREEN, PRO, TIEMPO REAL
+# ================================================================
 @app.route("/bot", methods=["GET","POST"])
 def bot():
-    if not li(): return redirect("/")
+    if not li() and not is_guest(): return redirect("/")
     if request.args.get("clear"):
         session.pop("bot_hist", None)
         return redirect("/bot")
-    tid    = tid_now()
-    prods  = db_query("SELECT * FROM productos WHERE tienda_id=%s ORDER BY cantidad DESC,nombre",
-                      (tid,), fetchall=True) or []
-    promos = db_query("SELECT * FROM promociones WHERE tienda_id=%s AND activa=1 AND (hasta IS NULL OR hasta>=%s)",
-                      (tid,hoy()), fetchall=True) or []
-    t      = get_tienda()
-    hist   = session.get("bot_hist",[])
-    mostrar_menu = request.args.get("menu","") == "1" or not hist
 
-    if request.method == "POST":
-        msg_raw = request.form.get("msg","").strip()
-        if msg_raw:
-            msg_show = BOT_QUICK.get(msg_raw, msg_raw)
-            hist.append({"quien":"Tú","texto":msg_show,"prod":None,
-                         "hora":_hhmm(),"texto_raw":msg_show})
-            resp_txt, prod_obj = bot_ia_respuesta(tid, hist, t, prods, promos)
-            prod_data = None
-            if prod_obj:
-                prod_data = {"nombre":prod_obj["nombre"],
-                             "precio":float(prod_obj["precio"]),
-                             "cantidad":prod_obj.get("cantidad",0),
-                             "unidad":prod_obj.get("unidad",""),
-                             "img":prod_obj.get("img",""),
-                             "categoria":prod_obj.get("categoria","")}
-            hist.append({"quien":"Bot","texto":resp_txt,"prod":prod_data,
-                         "hora":_hhmm(),"texto_raw":resp_txt})
-            session["bot_hist"] = hist[-40:]
-            mostrar_menu = False
+    tid   = tid_now()
+    t     = get_tienda()
+    t_nom = t.get("nombre","la tienda")
+    wa    = t.get("whatsapp","").strip().replace("+","").replace(" ","")
+    tel   = t.get("telefono","")
+    hor   = t.get("horario","Consultar")
+    dir_  = t.get("direccion","")
+    ciu   = t.get("ciudad","")
 
-    if not hist:
-        nom = t.get("nombre","la tienda")
-        bienvenida = (f"¡Hola! 👋 Soy el asistente de **{nom}**.\n\n"
-                      f"Soy una IA que aprende de cada conversación.\n"
-                      f"Pregúntame lo que quieras o usa el menú 👇")
-        hist = [{"quien":"Bot","texto":bienvenida,"prod":None,
-                 "hora":_hhmm(),"texto_raw":bienvenida}]
-        session["bot_hist"] = hist
+    prods  = db_query(
+        "SELECT * FROM productos WHERE tienda_id=%s ORDER BY categoria, nombre",
+        (tid,), fetchall=True) or []
+    promos = db_query(
+        "SELECT * FROM promociones WHERE tienda_id=%s AND activa=1 AND (hasta IS NULL OR hasta>=%s)",
+        (tid, hoy()), fetchall=True) or []
 
-    # ── Construir burbujas ─────────────────────────────────────────
-    msgs_html = ""
-    for m in hist:
-        hora = m.get("hora",_hhmm())
-        if m["quien"] == "Tú":
-            msgs_html += (
-                f'<div class="chat-row-r">'
-                f'<div class="chat-bub-r">{_fmt_msg(m["texto"])}</div>'
-                f'<div class="chat-meta-r">{hora} <span class="check-icon">✓✓</span></div>'
-                f'</div>')
-        else:
-            card_html = _prod_card(m["prod"]) if m.get("prod") else ""
-            msgs_html += (
-                f'<div class="chat-row-l">'
-                f'<div class="chat-av-l bot-av">🤖</div>'
-                f'<div>'
-                f'<div class="chat-bub-l">{_fmt_msg(m["texto"])}{card_html}</div>'
-                f'<div class="chat-meta-l">{hora}</div>'
-                f'</div></div>')
+    disponibles = [p for p in prods if p["cantidad"] > 0]
+    agotados    = [p for p in prods if p["cantidad"] == 0]
 
-    # ── Menú vertical ──────────────────────────────────────────────
     hay_agente = False
     try:
         ag = db_query("SELECT COUNT(*) as c FROM users WHERE tienda_id=%s AND rol='empleado'",
                       (tid,), fetchone=True)
         hay_agente = bool(ag and int(ag.get("c",0)) > 0)
-    except Exception:
-        hay_agente = False
-    # Invitados también pueden hablar con el agente
-    puede_agente = li()   # li() es True tanto para registrados como invitados
+    except: pass
 
-    menu_html = ""
-    if mostrar_menu:
-        menu_items = ""
-        for label, key, _, es_btn in MENU_VERTICAL:
-            if not es_btn:
-                # Separador de sección
-                menu_items += (f'<div style="font-size:.65rem;font-weight:800;color:var(--mt);'
-                               f'text-transform:uppercase;letter-spacing:.09em;'
-                               f'padding:10px 14px 4px;border-top:1px solid #e5e7eb;margin-top:4px">'
-                               f'{label}</div>')
-            else:
-                menu_items += (f'<form method="post" style="display:block;padding:2px 8px">'
-                               f'<input type="hidden" name="msg" value="{key}">'
-                               f'<button type="submit" style="width:100%;text-align:left;'
-                               f'background:transparent;border:none;padding:8px 8px;'
-                               f'border-radius:8px;cursor:pointer;font-family:inherit;'
-                               f'font-size:.82rem;color:#1e293b;font-weight:500;'
-                               f'transition:.15s;display:flex;align-items:center;gap:8px">'
-                               f'<span style="font-size:.9rem">{label.split()[0]}</span>'
-                               f'<span>{" ".join(label.split()[1:])}</span>'
-                               f'</button></form>')
-        # Agente al final
-        if hay_agente:
-            menu_items += (
-                f'<div style="padding:10px 8px">'
-                f'<a href="/chat_cliente" '
-                f'style="display:flex;align-items:center;gap:10px;'
-                f'background:linear-gradient(135deg,#059669,#0ea5e9);'
-                f'border-radius:12px;padding:12px 14px;text-decoration:none;'
-                f'box-shadow:0 4px 16px rgba(5,150,105,.35);'
-                f'animation:nb-pulse 2s infinite">'
-                f'<span style="font-size:1.3rem">💬</span>'
-                f'<div style="flex:1">'
-                f'<div style="color:#fff;font-size:.85rem;font-weight:800">Agente en línea 🟢</div>'
-                f'<div style="color:rgba(255,255,255,.75);font-size:.7rem;margin-top:2px">'
-                f'Escríbenos · Respuesta inmediata</div>'
-                f'</div>'
-                f'<span style="color:rgba(255,255,255,.6);font-size:.9rem">→</span>'
-                f'</a></div>')
-        menu_html = (
-            f'<div style="background:#fff;border-top:1px solid #e5e7eb;'
-            f'overflow-y:auto;max-height:260px;flex-shrink:0">'
-            f'{menu_items}'
-            f'</div>')
-    else:
-        # Solo chips horizontales cuando no hay menú
-        wa = t.get("whatsapp","").replace("+","").replace(" ","")
-        chips = [("ver_catalogo","📦 Catálogo"),("ver_disponibles","✅ Disponibles"),
-                 ("ver_agotados","❌ Agotados"),("ver_promos","🎁 Promos"),
-                 ("como_pagar","💳 Pagar"),("info_domi","🏍️ Domicilio"),
-                 ("estado_pedido","📦 Pedido"),("devolucion","🔄 Devolver")]
-        chips_h = "".join(
-            f'<form method="post" style="display:contents">'
-            f'<input type="hidden" name="msg" value="{k}">'
-            f'<button type="submit" class="chip">{lbl}</button></form>'
-            for k,lbl in chips)
-        if hay_agente and puede_agente:
-            chips_h += (f'<a href="/chat_cliente" class="chip chip-agent" '
-                        f'style="animation:nb-pulse 2s infinite">💬 Agente 🟢</a>')
-        if wa:
-            chips_h += f'<a href="https://wa.me/{wa}" target="_blank" class="chip chip-wa">💬 WhatsApp</a>'
-        menu_html = (f'<div class="chips-section">'
-                     f'<div class="chips-label">Accesos rápidos →</div>'
-                     f'<div class="chips-row">{chips_h}</div>'
-                     f'</div>')
+    hist = session.get("bot_hist", [])
 
-    t_nom = t.get("nombre","")
-    wa    = t.get("whatsapp","").replace("+","").replace(" ","")
+    if request.method == "POST":
+        msg_raw = (request.form.get("msg","") or "").strip()
+        if msg_raw:
+            lbl_u = BOT_QUICK.get(msg_raw, msg_raw)
+            hist.append({"quien":"Tú","texto":lbl_u,"prod":None,"hora":_hhmm()})
+            resp_txt, prod_obj = bot_ia_respuesta(tid, hist, t, prods, promos)
+            prod_data = None
+            if prod_obj:
+                prod_data = {
+                    "nombre":   prod_obj["nombre"],
+                    "precio":   float(prod_obj["precio"]),
+                    "cantidad": prod_obj.get("cantidad",0),
+                    "unidad":   prod_obj.get("unidad",""),
+                    "img":      prod_obj.get("img",""),
+                    "id":       prod_obj.get("id",0),
+                }
+            hist.append({"quien":"Bot","texto":resp_txt,"prod":prod_data,"hora":_hhmm()})
+            session["bot_hist"] = hist[-60:]
 
-    return base("🤖 Asistente Virtual",(
-        f'<div class="phone-outer">'
-        f'<div class="phone-device">'
-        # Notch
-        f'<div class="phone-notch">'
-        f'<div class="phone-pill"><div class="phone-cam"></div><div class="phone-speaker"></div></div>'
-        f'</div>'
-        # Barra superior
-        f'<div class="phone-bar bot-bar">'
-        f'<div class="phone-bar-left">'
-        f'<div class="phone-avatar">🤖</div>'
-        f'<div>'
-        f'<div class="phone-info-name">Asistente — {t_nom}</div>'
-        f'<div class="phone-info-status"><div class="phone-status-dot"></div>IA · En línea 24/7</div>'
-        f'</div></div>'
-        f'<div class="phone-bar-actions">'
-        f'<a href="/bot?menu=1" class="phone-bar-btn" title="Ver menú">☰ Menú</a>'
-        f'<a href="/bot?clear=1" class="phone-bar-btn">🔄</a>'
-        f'</div></div>'
+    if not hist:
+        bienvenida = (
+            "¡Hola! 👋 Soy el asistente de **" + t_nom + "**.\n\n"
+            "Puedo ayudarte con:\n"
+            "• 📦 Ver productos disponibles y precios\n"
+            "• 🔍 Consultar el estado de tu pedido\n"
+            "• 🔄 Información de devoluciones\n"
+            "• 💬 Conectarte con un agente en línea\n\n"
+            "Usa los botones de abajo o escríbeme 👇"
+        )
+        hist = [{"quien":"Bot","texto":bienvenida,"prod":None,"hora":_hhmm()}]
+        session["bot_hist"] = hist
+
+    # ── Burbujas ──────────────────────────────────────────────────────
+    msgs_html = ""
+    for m in hist:
+        hora = m.get("hora","")
+        if m["quien"] == "Tú":
+            msgs_html += (
+                '<div style="display:flex;justify-content:flex-end;'
+                'margin-bottom:16px;gap:8px;align-items:flex-end">'
+                '<div>'
+                '<div style="background:linear-gradient(135deg,#4f46e5,#6366f1);'
+                'color:#fff;border-radius:18px 4px 18px 18px;'
+                'padding:11px 16px;max-width:280px;font-size:.875rem;'
+                'line-height:1.5;box-shadow:0 4px 16px rgba(79,70,229,.28);'
+                'word-break:break-word">'
+                + _fmt_msg(m["texto"]) +
+                '</div>'
+                '<div style="font-size:.63rem;color:var(--mt);'
+                'text-align:right;margin-top:4px">' + hora + ' ✓✓</div>'
+                '</div>'
+                '<div style="width:30px;height:30px;border-radius:50%;flex-shrink:0;'
+                'background:linear-gradient(135deg,#818cf8,#6366f1);'
+                'display:flex;align-items:center;justify-content:center;'
+                'font-size:.75rem">👤</div>'
+                '</div>'
+            )
+        else:
+            # Card de producto si existe
+            card = ""
+            if m.get("prod"):
+                pd   = m["prod"]
+                disp = pd.get("cantidad",0) > 0
+                pid_c = str(pd.get("id",0))
+                img_h = ""
+                if pd.get("img"):
+                    img_h = (
+                        '<img src="' + str(pd["img"]) + '" '
+                        'style="width:52px;height:52px;object-fit:cover;'
+                        'border-radius:10px;flex-shrink:0" '
+                        'onerror="this.style.display=\'none\'">'
+                    )
+                add_btn = ""
+                if disp and pid_c != "0":
+                    add_btn = (
+                        '<a href="/add_cart/' + pid_c + '" '
+                        'style="display:inline-block;background:#4f46e5;color:#fff;'
+                        'border-radius:8px;padding:5px 12px;font-size:.72rem;'
+                        'text-decoration:none;font-weight:700;margin-top:6px;'
+                        'white-space:nowrap">🛒 Agregar al carrito</a>'
+                    )
+                card = (
+                    '<div style="background:rgba(79,70,229,.05);'
+                    'border:1px solid rgba(79,70,229,.15);'
+                    'border-radius:12px;padding:10px;margin-top:10px;'
+                    'display:flex;gap:10px;align-items:flex-start">'
+                    + img_h +
+                    '<div>'
+                    '<div style="font-weight:800;font-size:.84rem">'
+                    + str(pd.get("nombre","")) + '</div>'
+                    '<div style="font-size:.82rem;color:var(--sc);font-weight:700">'
+                    + fmt(pd.get("precio",0)) + ' / ' + str(pd.get("unidad","u")) + '</div>'
+                    '<div style="font-size:.72rem;margin-top:3px">'
+                    + ('<span style="color:#15803d;font-weight:700">✅ Disponible — '
+                       + str(pd.get("cantidad","")) + ' ' + str(pd.get("unidad","")) + '</span>'
+                       if disp else
+                       '<span style="color:#dc2626;font-weight:700">❌ Agotado</span>')
+                    + '</div>'
+                    + add_btn +
+                    '</div></div>'
+                )
+            msgs_html += (
+                '<div style="display:flex;gap:10px;margin-bottom:16px;align-items:flex-start">'
+                '<div style="width:32px;height:32px;border-radius:50%;flex-shrink:0;'
+                'background:linear-gradient(135deg,#312e81,#4f46e5);'
+                'display:flex;align-items:center;justify-content:center;font-size:.85rem;'
+                'box-shadow:0 2px 10px rgba(79,70,229,.3);margin-top:2px">🤖</div>'
+                '<div style="flex:1;min-width:0">'
+                '<div style="background:var(--card);border:1px solid var(--bd);'
+                'border-radius:4px 18px 18px 18px;padding:12px 15px;'
+                'font-size:.875rem;line-height:1.55;'
+                'box-shadow:0 2px 8px rgba(0,0,0,.05);max-width:520px;'
+                'word-break:break-word">'
+                + _fmt_msg(m["texto"]) + card +
+                '</div>'
+                '<div style="font-size:.63rem;color:var(--mt);margin-top:4px">'
+                + hora + '</div>'
+                '</div></div>'
+            )
+
+    # ── Botones en tiempo real ────────────────────────────────────────
+    cats_prod = []
+    seen = set()
+    for p in prods:
+        c = (p.get("categoria","General") or "General")
+        if c not in seen:
+            seen.add(c); cats_prod.append(c)
+
+    cat_btns = ""
+    for cat in cats_prod[:7]:
+        n = sum(1 for p in disponibles if (p.get("categoria","General") or "General") == cat)
+        cat_btns += (
+            '<form method="post" style="display:inline">'
+            '<input type="hidden" name="msg" value="ver categoria ' + cat + '">'
+            '<button type="submit" class="qb">📂 ' + cat
+            + ' <small>(' + str(n) + ')</small></button></form>'
+        )
+    cat_btns += (
+        '<form method="post" style="display:inline">'
+        '<input type="hidden" name="msg" value="ver_catalogo">'
+        '<button type="submit" class="qb">📋 Ver todos</button></form>'
+    )
+
+    agente_h = ""
+    if hay_agente:
+        agente_h = (
+            '<a href="/chat_cliente" class="qb qb-ag">'
+            '🟢 Agente en línea</a>'
+        )
+    wa_h = ""
+    if wa:
+        wa_h = (
+            '<a href="https://wa.me/' + wa + '" target="_blank" class="qb qb-wa">'
+            + WA_SVG + ' WhatsApp</a>'
+        )
+
+    # ── CSS (anula padding .ct solo para esta página) ─────────────────
+    css_bot = (
+        "<style>"
+        # Anular padding del contenedor general
+        ".ct{padding:0!important;overflow:hidden!important}"
+        ".main{overflow:hidden!important}"
+        # Wrapper principal — ocupa todo lo que queda bajo la topbar
+        "#bot-root{"
+        "  display:flex;flex-direction:column;"
+        "  height:calc(100vh - 57px);"   # 57px = altura del .tb
+        "  background:var(--bg);"
+        "  overflow:hidden;"
+        "}"
+        # Header del bot
+        "#bot-header{"
+        "  background:linear-gradient(135deg,#0f172a,#1e1b4b);"
+        "  padding:12px 20px;"
+        "  display:flex;align-items:center;justify-content:space-between;"
+        "  flex-shrink:0;"
+        "  border-bottom:1px solid rgba(255,255,255,.08);"
+        "}"
+        "#bot-hav{"
+        "  width:38px;height:38px;border-radius:50%;"
+        "  background:linear-gradient(135deg,#4f46e5,#818cf8);"
+        "  display:flex;align-items:center;justify-content:center;"
+        "  font-size:1.05rem;flex-shrink:0;"
+        "  box-shadow:0 0 0 3px rgba(99,102,241,.25);"
+        "}"
+        ".bot-hname{color:#fff;font-weight:900;font-size:.9rem}"
+        ".bot-hstat{"
+        "  color:#4ade80;font-size:.68rem;font-weight:600;margin-top:2px;"
+        "  display:flex;align-items:center;gap:4px;"
+        "}"
+        ".bot-hstat::before{"
+        "  content:'';width:6px;height:6px;border-radius:50%;"
+        "  background:#22c55e;box-shadow:0 0 5px #22c55e;"
+        "}"
+        ".bot-cbtn{"
+        "  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);"
+        "  color:rgba(255,255,255,.8);border-radius:8px;font-size:.7rem;"
+        "  padding:5px 11px;cursor:pointer;text-decoration:none;"
+        "  font-family:inherit;transition:.15s;display:inline-flex;"
+        "  align-items:center;gap:4px;"
+        "}"
+        ".bot-cbtn:hover{background:rgba(255,255,255,.2);color:#fff}"
+        # Área mensajes — crece y scrollea
+        "#bot-msgs{"
+        "  flex:1;"
+        "  overflow-y:auto;"
+        "  padding:18px 22px;"
+        "  scroll-behavior:smooth;"
+        "}"
+        "#bot-msgs::-webkit-scrollbar{width:4px}"
+        "#bot-msgs::-webkit-scrollbar-thumb{background:var(--bd);border-radius:99px}"
+        # Panel botones — altura fija
+        "#bot-panel{"
+        "  flex-shrink:0;"
+        "  background:var(--card);"
+        "  border-top:1.5px solid var(--bd);"
+        "  overflow-y:auto;"
+        "  max-height:240px;"
+        "}"
+        "#bot-panel::-webkit-scrollbar{width:3px}"
+        "#bot-panel::-webkit-scrollbar-thumb{background:var(--bd);border-radius:99px}"
+        ".bot-section{padding:10px 16px 4px}"
+        ".bot-sec-title{"
+        "  font-size:.6rem;font-weight:900;text-transform:uppercase;"
+        "  letter-spacing:.1em;color:var(--mt);margin-bottom:7px;"
+        "  display:flex;align-items:center;gap:6px;"
+        "}"
+        ".bot-sec-title::after{content:'';flex:1;height:1px;background:var(--bd)}"
+        ".bot-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}"
+        # Quick buttons
+        ".qb{"
+        "  display:inline-flex;align-items:center;gap:4px;"
+        "  background:var(--bg);border:1.5px solid var(--bd);color:var(--tx);"
+        "  border-radius:99px;padding:6px 13px;font-size:.76rem;font-weight:600;"
+        "  cursor:pointer;font-family:inherit;transition:all .16s;"
+        "  white-space:nowrap;text-decoration:none;"
+        "}"
+        ".qb:hover{"
+        "  background:rgba(79,70,229,.07);border-color:#4f46e5;"
+        "  color:#4f46e5;transform:translateY(-1px);"
+        "  box-shadow:0 3px 10px rgba(79,70,229,.12);"
+        "}"
+        ".qb small{opacity:.65;font-size:.68rem}"
+        ".qb-gr{border-color:#22c55e!important;color:#15803d!important;background:#f0fdf4!important}"
+        ".qb-gr:hover{background:#dcfce7!important}"
+        ".qb-rd{border-color:#fca5a5!important;color:#dc2626!important;background:#fef2f2!important}"
+        ".qb-rd:hover{background:#fee2e2!important}"
+        ".qb-pu{border-color:#c4b5fd!important;color:#7c3aed!important;background:#faf5ff!important}"
+        ".qb-pu:hover{background:#ede9fe!important}"
+        ".qb-ag{"
+        "  background:linear-gradient(135deg,#059669,#0ea5e9)!important;"
+        "  color:#fff!important;border:none!important;font-weight:800!important;"
+        "  box-shadow:0 4px 14px rgba(5,150,105,.3);"
+        "  animation:blink-ag 2s infinite;"
+        "}"
+        ".qb-wa{background:#25D366!important;color:#fff!important;border:none!important;font-weight:700!important}"
+        "@keyframes blink-ag{0%,100%{box-shadow:0 4px 14px rgba(5,150,105,.3)}50%{box-shadow:0 4px 22px rgba(5,150,105,.6)}}"
+        # Input bar
+        "#bot-input-bar{"
+        "  flex-shrink:0;padding:11px 16px;"
+        "  background:var(--card);border-top:1.5px solid var(--bd);"
+        "  display:flex;gap:8px;align-items:center;"
+        "}"
+        "#bot-inp{"
+        "  flex:1;background:var(--bg);border:1.5px solid var(--bd);"
+        "  border-radius:13px;padding:10px 16px;font-size:.875rem;"
+        "  font-family:inherit;color:var(--tx);outline:none;transition:.18s;"
+        "}"
+        "#bot-inp:focus{border-color:#4f46e5;box-shadow:0 0 0 3px rgba(79,70,229,.12)}"
+        "#bot-inp::placeholder{color:var(--mt)}"
+        "#bot-send{"
+        "  width:42px;height:42px;border-radius:13px;border:none;flex-shrink:0;"
+        "  background:linear-gradient(135deg,#4f46e5,#6366f1);"
+        "  color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;"
+        "  box-shadow:0 4px 14px rgba(79,70,229,.35);transition:all .18s;"
+        "}"
+        "#bot-send:hover{transform:scale(1.08);box-shadow:0 6px 20px rgba(79,70,229,.5)}"
+        # Responsive móvil
+        "@media(max-width:640px){"
+        "  #bot-root{height:calc(100vh - 50px)}"
+        "  #bot-msgs{padding:12px 12px}"
+        "  #bot-panel{max-height:200px}"
+        "  .qb{font-size:.72rem;padding:5px 10px}"
+        "  #bot-header{padding:10px 14px}"
+        "}"
+        "</style>"
+    )
+
+    # ── Panel de botones ──────────────────────────────────────────────
+    panel = (
+        '<div id="bot-panel">'
+        # Catálogo
+        '<div class="bot-section">'
+        '<div class="bot-sec-title">🛍️ Catálogo por categoría</div>'
+        '<div class="bot-row">' + cat_btns + '</div>'
+        '</div>'
+        # Inventario
+        '<div class="bot-section">'
+        '<div class="bot-sec-title">📦 Estado del inventario</div>'
+        '<div class="bot-row">'
+        '<form method="post" style="display:inline">'
+        '<input type="hidden" name="msg" value="ver_disponibles">'
+        '<button type="submit" class="qb qb-gr">✅ Disponibles <small>(' + str(len(disponibles)) + ')</small></button></form>'
+        '<form method="post" style="display:inline">'
+        '<input type="hidden" name="msg" value="ver_agotados">'
+        '<button type="submit" class="qb qb-rd">❌ Agotados <small>(' + str(len(agotados)) + ')</small></button></form>'
+        + (
+            '<form method="post" style="display:inline">'
+            '<input type="hidden" name="msg" value="ver_promos">'
+            '<button type="submit" class="qb qb-pu">🎁 Promociones <small>(' + str(len(promos)) + ')</small></button></form>'
+            if promos else ""
+        )
+        + '</div></div>'
+        # Pedidos
+        '<div class="bot-section">'
+        '<div class="bot-sec-title">🔧 Pedidos y ayuda</div>'
+        '<div class="bot-row">'
+        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="estado_pedido"><button type="submit" class="qb">📦 Mi pedido</button></form>'
+        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="cancelar_pedido"><button type="submit" class="qb">❌ Cancelar pedido</button></form>'
+        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="devolucion"><button type="submit" class="qb">🔄 Devoluciones</button></form>'
+        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="como_pagar"><button type="submit" class="qb">💳 Métodos de pago</button></form>'
+        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="info_domi"><button type="submit" class="qb">🏍️ Domicilios</button></form>'
+        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="horario_info"><button type="submit" class="qb">🕐 Horario</button></form>'
+        '</div></div>'
+        # Contacto
+        '<div class="bot-section" style="padding-bottom:12px">'
+        '<div class="bot-sec-title">💬 Contacto directo</div>'
+        '<div class="bot-row">' + agente_h + wa_h + '</div>'
+        '</div>'
+        '</div>'
+    )
+
+    # ── HTML completo ─────────────────────────────────────────────────
+    html = (
+        css_bot +
+        '<div id="bot-root">'
+        # Header
+        '<div id="bot-header">'
+        '<div style="display:flex;align-items:center;gap:11px">'
+        '<div id="bot-hav">🤖</div>'
+        '<div>'
+        '<div class="bot-hname">Asistente — ' + t_nom + '</div>'
+        '<div class="bot-hstat">IA activa · Datos en tiempo real</div>'
+        '</div></div>'
+        '<div style="display:flex;gap:6px">'
+        '<a href="/bot?clear=1" class="bot-cbtn">🔄 Limpiar</a>'
+        '</div>'
+        '</div>'
         # Mensajes
-        f'<div class="phone-msgs" id="chat-box">{msgs_html}</div>'
-        # Menú o chips
-        + menu_html +
+        '<div id="bot-msgs">' + msgs_html + '</div>'
+        # Panel botones
+        + panel +
         # Input
-        f'<form method="post" id="bform" style="display:contents">'
-        f'<div class="phone-input-bar">'
-        f'<input type="text" name="msg" class="phone-input" id="binput" '
-        f'placeholder="Escribe o elige del menú..." autocomplete="off">'
-        f'<button type="submit" class="phone-send send-bot">'
-        f'<svg width="16" height="16" viewBox="0 0 24 24" fill="white">'
-        f'<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>'
-        f'</button></div></form>'
-        f'</div></div>'  # phone-device / phone-outer
-        f'<p style="font-size:.7rem;color:var(--mt);text-align:center;margin-top:14px">'
-        f'🤖 IA que aprende · {t_nom}</p>'
-        f'<script>'
-        f'var cb=document.getElementById("chat-box");'
-        f'if(cb)cb.scrollTop=cb.scrollHeight;'
-        # Hover en botones del menú vertical
-        f'document.querySelectorAll(".phone-device button[type=submit]").forEach(function(b){{'
-        f'  if(b.style.width==="100%"){{'
-        f'    b.addEventListener("mouseenter",function(){{this.style.background="#f0f4ff";this.style.color="#4f46e5";}});'
-        f'    b.addEventListener("mouseleave",function(){{this.style.background="transparent";this.style.color="#1e293b";}});'
-        f'  }}'
-        f'}});'
-        f'document.getElementById("bform").addEventListener("submit",function(){{'
-        f'  setTimeout(function(){{if(cb)cb.scrollTop=cb.scrollHeight;}},200);'
-        f'}});'
-        f'</script>'))
+        '<form method="post" id="bot-form">'
+        '<div id="bot-input-bar">'
+        '<input type="text" name="msg" id="bot-inp" '
+        'placeholder="Escribe tu pregunta o usa los botones..." autocomplete="off">'
+        '<button type="submit" id="bot-send">'
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="white">'
+        '<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>'
+        '</button>'
+        '</div></form>'
+        '</div>'
+        # Script
+        '<script>'
+        # Scroll al fondo SIEMPRE
+        '(function(){'
+        '  var m=document.getElementById("bot-msgs");'
+        '  if(m){m.scrollTop=m.scrollHeight;}'
+        '})();'
+        # Enter para enviar
+        'document.getElementById("bot-inp").addEventListener("keydown",function(e){'
+        '  if(e.key==="Enter"&&!e.shiftKey){'
+        '    e.preventDefault();'
+        '    document.getElementById("bot-form").submit();'
+        '  }'
+        '});'
+        # Efecto click en botones
+        'document.querySelectorAll(".qb[type=submit],.qb:not(a)").forEach(function(b){'
+        '  b.addEventListener("click",function(){'
+        '    this.style.opacity="0.6";this.style.transform="scale(.95)";'
+        '  });'
+        '});'
+        # Focus input en desktop
+        'if(window.innerWidth>640)document.getElementById("bot-inp").focus();'
+        # Ajuste dinámico de altura si cambia ventana
+        'function adjH(){'
+        '  var tb=document.querySelector(".tb");'
+        '  var h=tb?tb.offsetHeight:57;'
+        '  document.getElementById("bot-root").style.height=(window.innerHeight-h)+"px";'
+        '}'
+        'adjH();window.addEventListener("resize",adjH);'
+        '</script>'
+    )
+
+    return base("🤖 Asistente Virtual", html)
+
 
 #  El bloque incluye: /chat_cliente + /agente_chat + /chat_api
 # ================================================================
@@ -7796,6 +10693,5 @@ if __name__ == "__main__":
     print()
     print("  INSTALAR: pip install flask werkzeug reportlab pymysql")
     print("="*70)
-
     # 👇 IMPORTANTE
     app.run(host="0.0.0.0", port=5000, debug=True)
