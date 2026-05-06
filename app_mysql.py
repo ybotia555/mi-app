@@ -1893,648 +1893,543 @@ def index():
 
     ids     = tuple(t["id"] for t in tiendas)
     fmt_ids = ",".join(["%s"] * len(ids))
-    prod_map  = {r["tienda_id"]: r["c"] for r in (db_query(f"SELECT tienda_id,COUNT(*) as c FROM productos WHERE tienda_id IN ({fmt_ids}) AND cantidad>0 GROUP BY tienda_id", ids, fetchall=True) or [])}
-    promo_map = {r["tienda_id"]: r["c"] for r in (db_query(f"SELECT tienda_id,COUNT(*) as c FROM promociones WHERE tienda_id IN ({fmt_ids}) AND activa=1 GROUP BY tienda_id", ids, fetchall=True) or [])}
+    prod_map  = {r["tienda_id"]: r["c"] for r in (db_query(
+        f"SELECT tienda_id,COUNT(*) as c FROM productos WHERE tienda_id IN ({fmt_ids}) AND cantidad>0 GROUP BY tienda_id",
+        ids, fetchall=True) or [])}
+    promo_map = {r["tienda_id"]: r["c"] for r in (db_query(
+        f"SELECT tienda_id,COUNT(*) as c FROM promociones WHERE tienda_id IN ({fmt_ids}) AND activa=1 GROUP BY tienda_id",
+        ids, fetchall=True) or [])}
 
     cards = ""
     for t in tiendas:
-        tid      = t["id"]
-        pc       = t.get("color","#4f46e5")
-        n_prod   = prod_map.get(tid, 0)
-        n_promo  = promo_map.get(tid, 0)
-        en_man   = bool(t.get("en_mantenimiento", 0))
+        tid    = t["id"]
+        pc     = t.get("color","#4f46e5")
+        n_prod = prod_map.get(tid, 0)
+        n_promo= promo_map.get(tid, 0)
+        en_man = bool(t.get("en_mantenimiento", 0))
 
         badge = (
-            f'<div style="display:inline-flex;align-items:center;gap:4px;'
-            f'font-size:.63rem;font-weight:800;padding:3px 10px;border-radius:99px;'
-            f'background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.35);'
-            f'color:#fca5a5;margin-top:6px">🎁 {n_promo} promo{"s" if n_promo>1 else ""}</div>'
+            f'<div class="tcard-promo">🎁 {n_promo} promo{"s" if n_promo>1 else ""}</div>'
             if n_promo else ""
         )
-        est_badge = (f'<span style="color:#fbbf24">🔧 Mantenimiento</span>'
-                     if en_man else f'<span style="color:#4ade80">🟢 En línea</span>')
-        horario_html = (f'<p style="font-size:.7rem;color:rgba(255,255,255,.28);margin:0">⏰ {t.get("horario","")}</p>'
-                        if t.get("horario") else "")
+        status_badge = (
+            '<div class="tcard-status mant">🔧 Mantenimiento</div>'
+            if en_man else
+            '<div class="tcard-status online">🟢 En línea</div>'
+        )
+        horario_html = (
+            f'<p class="tcard-hor">⏰ {t.get("horario","")}</p>'
+            if t.get("horario") else ""
+        )
         ciudad_html = f' · {t.get("ciudad","")}' if t.get("ciudad") else ""
 
         cards += (
-            '<a href="/entrar/' + str(tid) + '" class="tcard">'
-            '<div class="tcard-glow" style="background:radial-gradient(circle at 50% 0%,'
-            + pc + '30 0%,transparent 70%)"></div>'
-            '<div class="tcard-shine"></div>'
-            '<div class="tcard-body">'
-            '<div class="tcard-emoji">' + t.get("emoji","🏪") + '</div>'
-            '<div class="tcard-name">' + t["nombre"] + '</div>'
-            '<div class="tcard-sub">' + t.get("tipo","Tienda") + ciudad_html + '</div>'
-            + horario_html +
-            '<div class="tcard-meta">'
-            + ('<span style="display:inline-flex;align-items:center;gap:5px;font-size:.68rem;font-weight:700;padding:3px 10px;border-radius:99px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.35);color:#fbbf24">🔧 Mantenimiento</span>'
-               if en_man else
-               '<span class="tcard-online">🟢 En línea</span>')
-            + badge +
-            '</div>'
-            '<div class="tcard-stats">'
-            '<span class="tcard-stat"><span class="tstat-icon">📦</span>' + str(n_prod) + ' productos</span>'
-            '</div>'
-            '</div>'
-            '<div class="tcard-arrow">'
-            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">'
-            '<path d="M5 12h14M12 5l7 7-7 7"/></svg>'
-            '</div>'
-            '</a>'
+            f'<a href="/entrar/{tid}" class="tcard">'
+            f'<div class="tcard-glow" style="background:radial-gradient(circle at 50% 0%,{pc}22 0%,transparent 70%)"></div>'
+            f'<div class="tcard-body">'
+            f'<div class="tcard-emoji">{t.get("emoji","🏪")}</div>'
+            f'<div class="tcard-name">{t["nombre"]}</div>'
+            f'<div class="tcard-sub">{t.get("tipo","Tienda")}{ciudad_html}</div>'
+            f'{horario_html}'
+            f'<div class="tcard-meta">'
+            f'{status_badge}'
+            f'{badge}'
+            f'</div>'
+            f'<div class="tcard-stats"><span>📦 {n_prod}</span></div>'
+            f'</div>'
+            f'<div class="tcard-arrow">→</div>'
+            f'</a>'
         )
 
     n_tiendas = len(tiendas)
+
+    # ── 12 panes + 8 carritos flotantes distribuidos por la pantalla ──
+    # Posiciones: left%, top%, tamaño, duración, delay, rotación inicial
+    PANES = [
+        # left  top    size  dur  delay  rot
+        (  2,   15,   340,   9,   0,    -8),
+        ( 82,   10,   280,  11,   2,     6),
+        ( 42,   70,   320,   8,   1,    -4),
+        (  8,   78,   260,  12,   3,    -6),
+        ( 70,   50,   300,  10,  0.5,    5),
+        ( 25,   42,   200,  13,   4,    -3),
+        ( 90,   65,   220,   9,   2,     7),
+        ( 55,   20,   180,  14,   1,    -5),
+        ( 15,   55,   240,   8,   3,     4),
+        ( 75,   82,   260,  11,   0,    -7),
+        ( 48,   90,   200,  10,   2,     3),
+        ( 35,    5,   280,  12,   1,    -9),
+    ]
+    CARRITOS = [
+        (  5,   35,   300,  11,   0,     5),
+        ( 78,   25,   340,  10,   2,    -5),
+        ( 50,   55,   260,  13,   1,     4),
+        ( 22,   88,   280,   9,   3,    -6),
+        ( 62,   75,   220,  12,  0.5,    7),
+        ( 88,   82,   200,  10,   2,    -4),
+        ( 38,   30,   240,  14,   4,     6),
+        ( 12,    8,   220,   8,   1,    -3),
+    ]
+
+    def mk_pan_svg(idx):
+        """SVG de hogaza artesanal con color."""
+        # Variar el color dorado ligeramente entre instancias
+        golds = ["#F59E0B","#D97706","#FBBF24","#EF9B07","#F4A429"]
+        dark  = ["#92400E","#78350F","#B45309","#7C3406","#8B3F0A"]
+        g = golds[idx % len(golds)]
+        d = dark[idx % len(dark)]
+        return (
+            f'<svg viewBox="0 0 420 360" xmlns="http://www.w3.org/2000/svg" fill="none">'
+            f'<defs>'
+            f'<radialGradient id="pb{idx}" cx="42%" cy="38%" r="58%">'
+            f'<stop offset="0%" stop-color="#FDE68A"/>'
+            f'<stop offset="35%" stop-color="{g}"/>'
+            f'<stop offset="70%" stop-color="{d}"/>'
+            f'<stop offset="100%" stop-color="#451A03"/>'
+            f'</radialGradient>'
+            f'<radialGradient id="pt{idx}" cx="35%" cy="30%" r="50%">'
+            f'<stop offset="0%" stop-color="#FEF3C7" stop-opacity="0.9"/>'
+            f'<stop offset="60%" stop-color="#FCD34D" stop-opacity="0.5"/>'
+            f'<stop offset="100%" stop-color="{d}" stop-opacity="0"/>'
+            f'</radialGradient>'
+            f'</defs>'
+            # Sombra
+            f'<ellipse cx="210" cy="345" rx="165" ry="14" fill="rgba(0,0,0,.3)"/>'
+            # Cuerpo
+            f'<ellipse cx="210" cy="195" rx="175" ry="132" fill="url(#pb{idx})"/>'
+            f'<ellipse cx="210" cy="185" rx="162" ry="118" fill="url(#pt{idx})"/>'
+            # Greñas
+            f'<path d="M142 152 Q178 122 210 136 Q242 122 278 152" stroke="{d}" stroke-width="3.5" stroke-linecap="round"/>'
+            f'<path d="M126 186 Q175 156 210 168 Q245 156 294 186" stroke="{d}" stroke-width="3" stroke-linecap="round"/>'
+            f'<path d="M132 222 Q175 202 210 212 Q245 202 288 222" stroke="{d}" stroke-width="2.5" stroke-linecap="round"/>'
+            # Cruz
+            f'<line x1="210" y1="98" x2="210" y2="164" stroke="{g}" stroke-width="3" stroke-linecap="round"/>'
+            f'<line x1="178" y1="130" x2="242" y2="130" stroke="{g}" stroke-width="3" stroke-linecap="round"/>'
+            # Brillo
+            f'<ellipse cx="168" cy="148" rx="50" ry="26" fill="rgba(255,230,150,.1)" transform="rotate(-22 168 148)"/>'
+            # Poros
+            f'<circle cx="162" cy="228" r="5" fill="{d}" opacity="0.45"/>'
+            f'<circle cx="198" cy="244" r="4.5" fill="{d}" opacity="0.4"/>'
+            f'<circle cx="234" cy="232" r="6" fill="{d}" opacity="0.45"/>'
+            f'<circle cx="266" cy="240" r="4.5" fill="{d}" opacity="0.4"/>'
+            f'<circle cx="292" cy="226" r="5" fill="{d}" opacity="0.45"/>'
+            f'<circle cx="178" cy="268" r="4" fill="{d}" opacity="0.35"/>'
+            f'<circle cx="218" cy="278" r="5" fill="{d}" opacity="0.4"/>'
+            f'<circle cx="254" cy="270" r="4" fill="{d}" opacity="0.35"/>'
+            # Espigas izq
+            f'<line x1="68" y1="305" x2="68" y2="55" stroke="{g}" stroke-width="2"/>'
+            f'<ellipse cx="68" cy="55" rx="6" ry="15" fill="{g}" transform="rotate(-8 68 55)"/>'
+            f'<ellipse cx="56" cy="76" rx="6" ry="14" fill="#FCD34D" transform="rotate(-30 56 76)"/>'
+            f'<ellipse cx="80" cy="76" rx="6" ry="14" fill="#FCD34D" transform="rotate(30 80 76)"/>'
+            f'<ellipse cx="58" cy="98" rx="5.5" ry="13" fill="#FDE68A" transform="rotate(-24 58 98)"/>'
+            f'<ellipse cx="78" cy="98" rx="5.5" ry="13" fill="#FDE68A" transform="rotate(24 78 98)"/>'
+            f'<ellipse cx="60" cy="118" rx="5" ry="12" fill="#FEF3C7" transform="rotate(-18 60 118)"/>'
+            f'<ellipse cx="76" cy="118" rx="5" ry="12" fill="#FEF3C7" transform="rotate(18 76 118)"/>'
+            # Espigas der
+            f'<line x1="352" y1="305" x2="352" y2="55" stroke="{g}" stroke-width="2"/>'
+            f'<ellipse cx="352" cy="55" rx="6" ry="15" fill="{g}" transform="rotate(8 352 55)"/>'
+            f'<ellipse cx="340" cy="76" rx="6" ry="14" fill="#FCD34D" transform="rotate(-30 340 76)"/>'
+            f'<ellipse cx="364" cy="76" rx="6" ry="14" fill="#FCD34D" transform="rotate(30 364 76)"/>'
+            f'<ellipse cx="342" cy="98" rx="5.5" ry="13" fill="#FDE68A" transform="rotate(-24 342 98)"/>'
+            f'<ellipse cx="362" cy="98" rx="5.5" ry="13" fill="#FDE68A" transform="rotate(24 362 98)"/>'
+            f'<ellipse cx="344" cy="118" rx="5" ry="12" fill="#FEF3C7" transform="rotate(-18 344 118)"/>'
+            f'<ellipse cx="360" cy="118" rx="5" ry="12" fill="#FEF3C7" transform="rotate(18 360 118)"/>'
+            # Harina
+            f'<circle cx="116" cy="118" r="2.5" fill="rgba(255,240,200,.5)"/>'
+            f'<circle cx="298" cy="105" r="2.5" fill="rgba(255,240,200,.5)"/>'
+            f'<circle cx="104" cy="262" r="2" fill="rgba(255,240,200,.4)"/>'
+            f'<circle cx="308" cy="275" r="2" fill="rgba(255,240,200,.4)"/>'
+            f'</svg>'
+        )
+
+    def mk_carrito_svg(idx):
+        """SVG de carrito de supermercado."""
+        blues = ["#6366F1","#3B82F6","#8B5CF6","#06B6D4","#4F46E5"]
+        b = blues[idx % len(blues)]
+        return (
+            f'<svg viewBox="0 0 460 410" xmlns="http://www.w3.org/2000/svg" fill="none">'
+            f'<defs>'
+            f'<linearGradient id="ch{idx}" x1="0%" y1="0%" x2="100%" y2="0%">'
+            f'<stop offset="0%" stop-color="rgba(148,163,184,.6)"/>'
+            f'<stop offset="50%" stop-color="rgba(226,232,240,.85)"/>'
+            f'<stop offset="100%" stop-color="rgba(148,163,184,.6)"/>'
+            f'</linearGradient>'
+            f'<linearGradient id="cb{idx}" x1="0%" y1="0%" x2="100%" y2="100%">'
+            f'<stop offset="0%" stop-color="{b}" stop-opacity="0.22"/>'
+            f'<stop offset="100%" stop-color="{b}" stop-opacity="0.08"/>'
+            f'</linearGradient>'
+            f'<radialGradient id="cw{idx}" cx="38%" cy="32%" r="60%">'
+            f'<stop offset="0%" stop-color="rgba(203,213,225,.55)"/>'
+            f'<stop offset="100%" stop-color="rgba(51,65,85,.6)"/>'
+            f'</radialGradient>'
+            f'</defs>'
+            # Sombras ruedas
+            f'<ellipse cx="148" cy="398" rx="28" ry="8" fill="rgba(0,0,0,.3)"/>'
+            f'<ellipse cx="312" cy="398" rx="28" ry="8" fill="rgba(0,0,0,.3)"/>'
+            # Mango
+            f'<path d="M74 56 Q74 32 98 32 L362 32 Q386 32 386 56" stroke="url(#ch{idx})" stroke-width="13" stroke-linecap="round"/>'
+            f'<path d="M74 56 Q74 32 98 32 L362 32 Q386 32 386 56" stroke="rgba(255,255,255,.12)" stroke-width="5" stroke-linecap="round"/>'
+            # Cuerpo
+            f'<path d="M54 74 L72 316 Q74 336 92 336 L368 336 Q386 336 388 316 L406 74 Z" fill="url(#cb{idx})" stroke="{b}" stroke-width="1.5" stroke-opacity="0.6"/>'
+            # Alambres H
+            f'<line x1="59" y1="122" x2="401" y2="122" stroke="{b}" stroke-width="1.5" stroke-opacity="0.45"/>'
+            f'<line x1="62" y1="170" x2="398" y2="170" stroke="{b}" stroke-width="1.5" stroke-opacity="0.45"/>'
+            f'<line x1="65" y1="218" x2="395" y2="218" stroke="{b}" stroke-width="1.5" stroke-opacity="0.45"/>'
+            f'<line x1="68" y1="268" x2="392" y2="268" stroke="{b}" stroke-width="1.5" stroke-opacity="0.45"/>'
+            # Alambres V
+            f'<line x1="108" y1="74" x2="98" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
+            f'<line x1="154" y1="74" x2="146" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
+            f'<line x1="200" y1="74" x2="197" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
+            f'<line x1="230" y1="74" x2="230" y2="336" stroke="{b}" stroke-width="1.5" stroke-opacity="0.45"/>'
+            f'<line x1="260" y1="74" x2="263" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
+            f'<line x1="306" y1="74" x2="314" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
+            f'<line x1="352" y1="74" x2="362" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
+            # Base
+            f'<path d="M72 316 L74 336 Q76 352 92 352 L368 352 Q384 352 386 336 L388 316" stroke="url(#ch{idx})" stroke-width="9" stroke-linecap="round"/>'
+            # Patas
+            f'<line x1="92" y1="352" x2="130" y2="380" stroke="rgba(148,163,184,.65)" stroke-width="9" stroke-linecap="round"/>'
+            f'<line x1="368" y1="352" x2="330" y2="380" stroke="rgba(148,163,184,.65)" stroke-width="9" stroke-linecap="round"/>'
+            # Rueda izq
+            f'<circle cx="130" cy="386" r="22" fill="url(#cw{idx})" stroke="rgba(148,163,184,.4)" stroke-width="2"/>'
+            f'<circle cx="130" cy="386" r="10" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="1.5"/>'
+            f'<circle cx="130" cy="386" r="3.5" fill="rgba(255,255,255,.25)"/>'
+            f'<line x1="130" y1="365" x2="130" y2="407" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>'
+            f'<line x1="109" y1="386" x2="151" y2="386" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>'
+            f'<line x1="116" y1="371" x2="144" y2="401" stroke="rgba(255,255,255,.1)" stroke-width="1"/>'
+            f'<line x1="144" y1="371" x2="116" y2="401" stroke="rgba(255,255,255,.1)" stroke-width="1"/>'
+            # Rueda der
+            f'<circle cx="330" cy="386" r="22" fill="url(#cw{idx})" stroke="rgba(148,163,184,.4)" stroke-width="2"/>'
+            f'<circle cx="330" cy="386" r="10" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="1.5"/>'
+            f'<circle cx="330" cy="386" r="3.5" fill="rgba(255,255,255,.25)"/>'
+            f'<line x1="330" y1="365" x2="330" y2="407" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>'
+            f'<line x1="309" y1="386" x2="351" y2="386" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>'
+            f'<line x1="316" y1="371" x2="344" y2="401" stroke="rgba(255,255,255,.1)" stroke-width="1"/>'
+            f'<line x1="344" y1="371" x2="316" y2="401" stroke="rgba(255,255,255,.1)" stroke-width="1"/>'
+            # Productos dentro
+            f'<rect x="132" y="96" width="58" height="50" rx="5" fill="{b}" opacity="0.45" stroke="{b}" stroke-width="1.5" stroke-opacity="0.7"/>'
+            f'<line x1="132" y1="116" x2="190" y2="116" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>'
+            f'<line x1="161" y1="96" x2="161" y2="146" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>'
+            f'<ellipse cx="248" cy="122" rx="34" ry="36" fill="rgba(245,158,11,.45)" stroke="rgba(253,230,138,.7)" stroke-width="1.5"/>'
+            f'<path d="M234 92 Q248 82 262 92" stroke="rgba(253,230,138,.8)" stroke-width="2" stroke-linecap="round"/>'
+            f'<rect x="302" y="90" width="26" height="58" rx="6" fill="rgba(34,197,94,.4)" stroke="rgba(110,231,183,.7)" stroke-width="1.5"/>'
+            f'<rect x="308" y="80" width="14" height="13" rx="3" fill="rgba(52,211,153,.5)" stroke="rgba(110,231,183,.7)" stroke-width="1"/>'
+            # Oferta
+            f'<rect x="164" y="230" width="66" height="24" rx="6" fill="rgba(239,68,68,.35)" stroke="rgba(252,165,165,.6)" stroke-width="1"/>'
+            f'<text x="197" y="247" text-anchor="middle" font-size="10" font-weight="800" fill="rgba(254,202,202,.9)" font-family="system-ui">OFERTA</text>'
+            f'</svg>'
+        )
+
+    # Generar HTML de panes flotantes
+    panes_html = ""
+    for i, (lft, top, sz, dur, dly, rot) in enumerate(PANES):
+        panes_html += (
+            f'<div style="position:absolute;left:{lft}%;top:{top}%;width:{sz}px;'
+            f'opacity:.28;transform:rotate({rot}deg);pointer-events:none;'
+            f'animation:pfloat{i%3} {dur}s ease-in-out {dly}s infinite;'
+            f'filter:drop-shadow(0 0 40px rgba(245,158,11,.45))">'
+            f'{mk_pan_svg(i)}</div>'
+        )
+
+    carritos_html = ""
+    for i, (lft, top, sz, dur, dly, rot) in enumerate(CARRITOS):
+        carritos_html += (
+            f'<div style="position:absolute;left:{lft}%;top:{top}%;width:{sz}px;'
+            f'opacity:.25;transform:rotate({rot}deg);pointer-events:none;'
+            f'animation:cfloat{i%3} {dur}s ease-in-out {dly}s infinite;'
+            f'filter:drop-shadow(0 0 40px rgba(99,102,241,.45))">'
+            f'{mk_carrito_svg(i)}</div>'
+        )
 
     return (
         "<!DOCTYPE html><html lang='es'><head>"
         "<meta charset='UTF-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>GestorPro · Bienvenido</title>"
-        "<link href='https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap' rel='stylesheet'>"
+        "<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap' rel='stylesheet'>"
         "<style>"
-
-        # ── Base ────────────────────────────────────────────────
         "*{box-sizing:border-box;margin:0;padding:0}"
         "html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;"
-        "background:#060612;color:#fff;min-height:100vh;overflow-x:hidden}"
-
-        # ── Canvas estrellas ────────────────────────────────────
+        "background:#07070f;color:#fff;min-height:100vh;overflow-x:hidden}"
         "#cvs{position:fixed;inset:0;z-index:0;pointer-events:none}"
 
-        # ── Fondo ilustraciones (pan + carrito) ─────────────────
+        # ── Fondo ilustraciones ───────────────────────────────────
         ".bg-art{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}"
 
-        # Pan izquierda
-        ".pan-wrap{"
-        "position:absolute;left:-60px;top:50%;transform:translateY(-50%);"
-        "width:520px;width:520px;opacity:.38;"
-        "animation:pan-float 9s ease-in-out infinite;"
-        "filter:blur(.6px) drop-shadow(0 0 60px #f59e0b88)}"
-        "@keyframes pan-float{"
-        "0%,100%{transform:translateY(-50%) rotate(-6deg)}"
-        "50%{transform:translateY(calc(-50% - 22px)) rotate(-3deg)}}"
+        # 3 variantes de animación pan
+        "@keyframes pfloat0{0%,100%{transform:rotate(-8deg) translateY(0)}50%{transform:rotate(-4deg) translateY(-22px)}}"
+        "@keyframes pfloat1{0%,100%{transform:rotate(5deg) translateY(0)}50%{transform:rotate(2deg) translateY(-18px)}}"
+        "@keyframes pfloat2{0%,100%{transform:rotate(-3deg) translateY(0)}50%{transform:rotate(-6deg) translateY(-26px)}}"
 
-        # Carrito derecha
-        ".cart-wrap{"
-        "position:absolute;right:-80px;top:50%;transform:translateY(-50%);"
-        "width:480px;width:480px;opacity:.38;"
-        "animation:cart-float 11s ease-in-out infinite;"
-        "filter:blur(.6px) drop-shadow(0 0 60px #6366f188)}"
-        "@keyframes cart-float{"
-        "0%,100%{transform:translateY(-50%) rotate(5deg)}"
-        "50%{transform:translateY(calc(-50% + 18px)) rotate(2deg)}}"
+        # 3 variantes de animación carrito
+        "@keyframes cfloat0{0%,100%{transform:rotate(5deg) translateY(0)}50%{transform:rotate(2deg) translateY(-20px)}}"
+        "@keyframes cfloat1{0%,100%{transform:rotate(-6deg) translateY(0)}50%{transform:rotate(-3deg) translateY(18px)}}"
+        "@keyframes cfloat2{0%,100%{transform:rotate(4deg) translateY(0)}50%{transform:rotate(7deg) translateY(-24px)}}"
 
-        # Glow atrás del pan
-        ".pan-glow{"
-        "position:absolute;left:-200px;top:50%;transform:translateY(-50%);"
-        "width:700px;height:700px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(245,158,11,.12) 0%,transparent 65%);"
-        "pointer-events:none}"
-
-        # Glow atrás del carrito
-        ".cart-glow{"
-        "position:absolute;right:-200px;top:50%;transform:translateY(-50%);"
-        "width:700px;height:700px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(99,102,241,.12) 0%,transparent 65%);"
-        "pointer-events:none}"
-
-        # ── Aurora ──────────────────────────────────────────────
+        # ── Aurora ───────────────────────────────────────────────
         ".au{position:fixed;inset:0;z-index:2;pointer-events:none;overflow:hidden}"
         ".a1{position:absolute;width:900px;height:900px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(79,70,229,.15) 0%,transparent 70%);"
+        "background:radial-gradient(circle,rgba(79,70,229,.18) 0%,transparent 70%);"
         "top:-300px;right:-200px;animation:da 18s ease-in-out infinite alternate}"
         ".a2{position:absolute;width:700px;height:700px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(245,158,11,.08) 0%,transparent 70%);"
+        "background:radial-gradient(circle,rgba(16,185,129,.1) 0%,transparent 70%);"
         "bottom:-200px;left:-150px;animation:db 22s ease-in-out infinite alternate}"
         ".a3{position:absolute;width:500px;height:500px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(236,72,153,.06) 0%,transparent 70%);"
-        "top:40%;left:50%;transform:translate(-50%,-50%);animation:dc 14s ease-in-out infinite}"
+        "background:radial-gradient(circle,rgba(245,158,11,.07) 0%,transparent 70%);"
+        "top:45%;left:45%;transform:translate(-50%,-50%);animation:dc 14s ease-in-out infinite}"
         "@keyframes da{0%{transform:translate(0,0)}100%{transform:translate(-60px,40px)}}"
         "@keyframes db{0%{transform:translate(0,0)}100%{transform:translate(50px,-50px)}}"
         "@keyframes dc{0%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.2)}100%{transform:translate(-50%,-50%) scale(1)}}"
 
-        # Grid puntitos
         ".gd{position:fixed;inset:0;z-index:3;pointer-events:none;"
-        "background-image:radial-gradient(rgba(255,255,255,.022) 1px,transparent 1px);"
-        "background-size:38px 38px}"
+        "background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);"
+        "background-size:36px 36px}"
 
-        # ── Contenido ───────────────────────────────────────────
+        # ── Contenido ─────────────────────────────────────────────
         ".page{position:relative;z-index:10;min-height:100vh;"
-        "display:flex;flex-direction:column;align-items:center;padding:64px 20px 90px}"
+        "display:flex;flex-direction:column;align-items:center;padding:60px 20px 80px}"
 
-        # ── Hero ────────────────────────────────────────────────
-        ".hero{text-align:center;margin-bottom:60px}"
-
-        ".hero-logo{"
-        "width:92px;height:92px;border-radius:26px;"
-        "background:linear-gradient(135deg,#3730a3 0%,#4f46e5 50%,#6366f1 100%);"
-        "display:flex;align-items:center;justify-content:center;font-size:2.6rem;"
-        "margin:0 auto 26px;"
+        # ── Hero ──────────────────────────────────────────────────
+        ".hero{text-align:center;margin-bottom:52px}"
+        ".hero-logo{width:88px;height:88px;border-radius:26px;"
+        "background:linear-gradient(135deg,#3730a3,#4f46e5,#6366f1);"
+        "display:flex;align-items:center;justify-content:center;font-size:2.5rem;"
+        "margin:0 auto 22px;"
         "box-shadow:0 0 0 12px rgba(79,70,229,.1),0 0 0 24px rgba(79,70,229,.05),"
-        "0 24px 64px rgba(79,70,229,.55);"
-        "animation:logo-pulse 4s ease infinite}"
-
-        "@keyframes logo-pulse{"
-        "0%,100%{box-shadow:0 0 0 12px rgba(79,70,229,.1),0 0 0 24px rgba(79,70,229,.05),0 24px 64px rgba(79,70,229,.55)}"
-        "50%{box-shadow:0 0 0 16px rgba(79,70,229,.16),0 0 0 32px rgba(79,70,229,.08),0 24px 80px rgba(79,70,229,.75)}}"
-
-        ".hero-eyebrow{"
-        "display:inline-flex;align-items:center;gap:7px;"
-        "padding:5px 16px;border-radius:99px;margin-bottom:18px;"
-        "background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);"
-        "font-size:.72rem;font-weight:700;color:#a5b4fc;letter-spacing:.06em;text-transform:uppercase}"
-        ".eyebrow-dot{width:6px;height:6px;border-radius:50%;"
-        "background:#4ade80;box-shadow:0 0 8px #4ade80;animation:blink 2s ease infinite}"
-        "@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}"
-
-        ".hero h1{"
-        "font-family:'Syne',sans-serif;"
-        "font-size:clamp(3rem,8vw,5.5rem);font-weight:900;letter-spacing:-.04em;line-height:.95;"
-        "background:linear-gradient(145deg,#ffffff 0%,#c7d2fe 45%,#818cf8 75%,#f0abfc 100%);"
+        "0 20px 60px rgba(79,70,229,.5);animation:glow 4s ease infinite}"
+        "@keyframes glow{"
+        "0%,100%{box-shadow:0 0 0 12px rgba(79,70,229,.1),0 0 0 24px rgba(79,70,229,.05),0 20px 60px rgba(79,70,229,.5)}"
+        "50%{box-shadow:0 0 0 16px rgba(79,70,229,.15),0 0 0 32px rgba(79,70,229,.08),0 20px 80px rgba(79,70,229,.7)}}"
+        ".hero h1{font-size:clamp(2.4rem,6vw,3.8rem);font-weight:900;letter-spacing:-.04em;"
+        "background:linear-gradient(135deg,#fff 30%,#818cf8 65%,#c4b5fd);"
         "-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;"
-        "margin-bottom:16px}"
+        "margin-bottom:12px}"
+        ".hero p{font-size:clamp(.88rem,2vw,1rem);color:rgba(255,255,255,.4);"
+        "font-weight:500;margin-bottom:22px}"
+        ".hero-badge{display:inline-flex;align-items:center;gap:7px;"
+        "padding:7px 18px;border-radius:99px;"
+        "background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.28);"
+        "font-size:.78rem;font-weight:700;color:#a5b4fc}"
+        ".hero-badge::before{content:'';width:7px;height:7px;border-radius:50%;"
+        "background:#4ade80;box-shadow:0 0 8px #4ade80;animation:blink 2s ease infinite}"
+        "@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}"
 
-        ".hero p{"
-        "font-size:clamp(.9rem,2vw,1.05rem);color:rgba(255,255,255,.38);"
-        "font-weight:500;margin-bottom:28px;max-width:420px;margin-left:auto;margin-right:auto}"
+        # ── GRID — DESKTOP ────────────────────────────────────────
+        ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));"
+        "gap:18px;width:100%;max-width:1100px}"
 
-        ".hero-stats{"
-        "display:inline-flex;align-items:center;gap:20px;"
-        "padding:10px 24px;border-radius:99px;"
-        "background:rgba(255,255,255,.04);"
-        "border:1px solid rgba(255,255,255,.09);"
-        "backdrop-filter:blur(12px);"
-        "font-size:.8rem;font-weight:600;color:rgba(255,255,255,.5)}"
-        ".stat-sep{width:1px;height:14px;background:rgba(255,255,255,.12)}"
-        ".stat-val{font-weight:800;color:#fff;font-size:.95rem}"
-
-        # ── Etiqueta decorativa central ─────────────────────────
-        ".deco-tags{"
-        "display:flex;align-items:center;justify-content:center;gap:10px;"
-        "margin-bottom:48px;flex-wrap:wrap}"
-        ".dtag{"
-        "display:inline-flex;align-items:center;gap:6px;"
-        "padding:6px 14px;border-radius:99px;"
-        "font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase}"
-        ".dtag-pan{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);color:#fcd34d}"
-        ".dtag-shop{background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);color:#a5b4fc}"
-        ".dtag-col{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);color:#4ade80}"
-
-        # ── Grid tiendas ────────────────────────────────────────
-        ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));"
-        "gap:20px;width:100%;max-width:1120px}"
-
-        # ── Card tienda ─────────────────────────────────────────
-        ".tcard{"
-        "position:relative;border-radius:24px;overflow:hidden;"
+        # ── CARD tienda ───────────────────────────────────────────
+        ".tcard{position:relative;border-radius:20px;overflow:hidden;"
         "text-decoration:none;color:#fff;display:flex;flex-direction:column;"
-        "background:linear-gradient(145deg,rgba(255,255,255,.055) 0%,rgba(255,255,255,.025) 100%);"
+        "background:rgba(255,255,255,.042);"
         "border:1px solid rgba(255,255,255,.09);"
-        "backdrop-filter:blur(20px);"
-        "transition:transform .32s cubic-bezier(.22,1,.36,1),box-shadow .32s,border-color .32s;"
-        "cursor:pointer;min-height:230px}"
-
-        ".tcard::before{"
-        "content:'';position:absolute;inset:0;border-radius:24px;"
-        "background:linear-gradient(135deg,rgba(255,255,255,.06) 0%,rgba(255,255,255,0) 60%);"
-        "pointer-events:none;z-index:0}"
-
-        ".tcard:hover{"
-        "transform:translateY(-10px) scale(1.015);"
-        "box-shadow:0 40px 80px rgba(0,0,0,.55),0 0 0 1.5px rgba(255,255,255,.2);"
-        "border-color:rgba(255,255,255,.2)}"
-
-        ".tcard-glow{"
-        "position:absolute;inset:0;opacity:0;transition:opacity .35s;pointer-events:none;z-index:0}"
+        "backdrop-filter:blur(16px);"
+        "transition:transform .28s cubic-bezier(.22,1,.36,1),box-shadow .28s,border-color .28s;"
+        "cursor:pointer;min-height:200px}"
+        ".tcard:hover{transform:translateY(-7px) scale(1.012);"
+        "box-shadow:0 28px 64px rgba(0,0,0,.5),0 0 0 1.5px rgba(255,255,255,.16);"
+        "border-color:rgba(255,255,255,.16)}"
+        ".tcard-glow{position:absolute;inset:0;opacity:0;transition:opacity .3s;pointer-events:none}"
         ".tcard:hover .tcard-glow{opacity:1}"
+        ".tcard-body{position:relative;z-index:1;padding:22px 20px 52px;flex:1;"
+        "display:flex;flex-direction:column;gap:6px}"
+        ".tcard-emoji{font-size:2.6rem;filter:drop-shadow(0 4px 16px rgba(0,0,0,.3));"
+        "margin-bottom:4px;display:inline-block;transition:transform .28s}"
+        ".tcard:hover .tcard-emoji{transform:scale(1.12) rotate(-5deg)}"
+        ".tcard-name{font-size:1.05rem;font-weight:900;letter-spacing:-.02em;line-height:1.2}"
+        ".tcard-sub{font-size:.73rem;color:rgba(255,255,255,.42);font-weight:500}"
+        ".tcard-hor{font-size:.68rem;color:rgba(255,255,255,.28);margin:0}"
+        ".tcard-meta{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}"
+        ".tcard-status{display:inline-flex;align-items:center;gap:5px;"
+        "font-size:.66rem;font-weight:700;padding:3px 10px;border-radius:99px}"
+        ".tcard-status.online{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);color:#4ade80}"
+        ".tcard-status.online::before{content:'';width:5px;height:5px;border-radius:50%;"
+        "background:#22c55e;box-shadow:0 0 6px #22c55e}"
+        ".tcard-status.mant{background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);color:#fbbf24}"
+        ".tcard-promo{display:inline-flex;align-items:center;gap:4px;"
+        "font-size:.63rem;font-weight:800;padding:3px 10px;border-radius:99px;"
+        "background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5}"
+        ".tcard-stats{display:flex;align-items:center;gap:8px;margin-top:auto;"
+        "font-size:.7rem;color:rgba(255,255,255,.28);font-weight:600}"
+        ".tcard-arrow{position:absolute;bottom:16px;right:16px;z-index:1;"
+        "width:32px;height:32px;border-radius:50%;"
+        "background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);"
+        "display:flex;align-items:center;justify-content:center;font-size:.9rem;"
+        "transition:all .2s}"
+        ".tcard:hover .tcard-arrow{background:rgba(255,255,255,.14);transform:scale(1.1)}"
 
-        # Shine sweep on hover
-        ".tcard-shine{"
-        "position:absolute;top:0;left:-100%;width:60%;height:100%;"
-        "background:linear-gradient(105deg,transparent 0%,rgba(255,255,255,.06) 50%,transparent 100%);"
-        "transition:left .5s ease;pointer-events:none;z-index:2}"
-        ".tcard:hover .tcard-shine{left:150%}"
-
-        ".tcard-body{"
-        "position:relative;z-index:1;padding:28px 24px 20px;"
-        "flex:1;display:flex;flex-direction:column;gap:8px}"
-
-        ".tcard-emoji{"
-        "font-size:3.2rem;filter:drop-shadow(0 6px 24px rgba(0,0,0,.4));"
-        "margin-bottom:4px;transition:transform .3s}"
-        ".tcard:hover .tcard-emoji{transform:scale(1.1) rotate(-4deg)}"
-
-        ".tcard-name{"
-        "font-family:'Syne',sans-serif;"
-        "font-size:1.2rem;font-weight:800;letter-spacing:-.025em;line-height:1.2}"
-
-        ".tcard-sub{"
-        "font-size:.75rem;color:rgba(255,255,255,.4);font-weight:500}"
-
-        ".tcard-meta{"
-        "display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px}"
-
-        ".tcard-online{"
-        "display:inline-flex;align-items:center;gap:5px;"
-        "font-size:.67rem;font-weight:700;padding:3px 10px;border-radius:99px;"
-        "background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.2);color:#4ade80}"
-
-        ".tcard-stats{"
-        "display:flex;align-items:center;gap:12px;margin-top:auto;padding-top:14px;"
-        "border-top:1px solid rgba(255,255,255,.06)}"
-
-        ".tcard-stat{"
-        "display:flex;align-items:center;gap:6px;"
-        "font-size:.72rem;color:rgba(255,255,255,.32);font-weight:600}"
-
-        ".tstat-icon{font-size:.85rem}"
-
-        ".tcard-arrow{"
-        "position:absolute;bottom:22px;right:22px;z-index:2;"
-        "width:36px;height:36px;border-radius:50%;"
-        "background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);"
-        "display:flex;align-items:center;justify-content:center;"
-        "color:rgba(255,255,255,.5);transition:all .25s cubic-bezier(.22,1,.36,1)}"
-        ".tcard:hover .tcard-arrow{"
-        "background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.3);"
-        "color:#fff;transform:scale(1.15) translateX(2px)}"
-
-        # ── Footer ──────────────────────────────────────────────
-        ".footer{"
-        "margin-top:70px;text-align:center;"
+        # ── Footer ────────────────────────────────────────────────
+        ".footer{margin-top:56px;text-align:center;"
         "font-size:.7rem;color:rgba(255,255,255,.15);font-weight:500}"
-        ".footer a{color:rgba(255,255,255,.22);text-decoration:none;transition:.2s}"
+        ".footer a{color:rgba(255,255,255,.25);text-decoration:none;transition:.2s}"
         ".footer a:hover{color:rgba(255,255,255,.5)}"
 
-        # ── Splash ──────────────────────────────────────────────
+        # ── Splash keyframes ──────────────────────────────────────
         "@keyframes sp-pop{from{opacity:0;transform:scale(.3) rotate(-12deg)}to{opacity:1;transform:scale(1) rotate(0)}}"
         "@keyframes sp-up{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}"
         "@keyframes sp-dt{0%,80%,100%{transform:scale(.6);opacity:.3}40%{transform:scale(1);opacity:1}}"
 
-        "@media(max-width:640px){"
-        ".hero{margin-bottom:36px}"
-        ".page{padding:40px 14px 70px}"
-        ".pan-wrap,.cart-wrap{display:none}"
-        ".hero h1{font-size:2.8rem}"
+        # ══ MOBILE ═══════════════════════════════════════════════
+        "@media(max-width:600px){"
+        ".page{padding:32px 12px 60px}"
+        ".hero{margin-bottom:28px}"
+        ".hero-logo{width:64px;height:64px;border-radius:18px;font-size:1.8rem;margin-bottom:14px}"
+        ".hero h1{font-size:2rem}"
+        ".hero p{font-size:.82rem;margin-bottom:16px}"
+        ".hero-badge{font-size:.7rem;padding:5px 14px}"
+        # Grid 1 col en móvil muy pequeño, 2 col en tablet
+        ".grid{grid-template-columns:1fr 1fr;gap:10px}"
+        ".tcard{border-radius:16px;min-height:0}"
+        ".tcard-body{padding:14px 13px 40px;gap:4px}"
+        ".tcard-emoji{font-size:2rem;margin-bottom:2px}"
+        ".tcard-name{font-size:.88rem;letter-spacing:-.01em}"
+        ".tcard-sub{font-size:.65rem}"
+        ".tcard-hor{font-size:.6rem}"
+        ".tcard-status{font-size:.58rem;padding:2px 8px}"
+        ".tcard-promo{font-size:.57rem;padding:2px 8px}"
+        ".tcard-stats{font-size:.62rem}"
+        ".tcard-arrow{width:26px;height:26px;font-size:.75rem;bottom:10px;right:10px}"
+        "}"
+        "@media(max-width:380px){"
+        ".grid{grid-template-columns:1fr;gap:9px}"
+        ".tcard-body{padding:16px 14px 46px}"
+        ".tcard-emoji{font-size:2.2rem}"
+        ".tcard-name{font-size:.92rem}"
+        "}"
+        "@media(min-width:601px) and (max-width:900px){"
+        ".grid{grid-template-columns:repeat(2,1fr);gap:14px}"
+        ".page{padding:48px 16px 70px}"
         "}"
 
         "</style></head><body>"
 
-        # ── Canvas ──────────────────────────────────────────────
+        # Canvas estrellas
         "<canvas id='cvs'></canvas>"
 
-        # ── ILUSTRACIONES DE FONDO ──────────────────────────────
+        # Fondo artístico panes y carritos
         "<div class='bg-art'>"
-
-        # Glow detrás del pan
-        "<div class='pan-glow'></div>"
-        # Glow detrás del carrito
-        "<div class='cart-glow'></div>"
-
-        # 🍞 PAN ARTESANAL gigante izquierda
-        "<div class='pan-wrap'>"
-        "<svg viewBox='0 0 500 400' xmlns='http://www.w3.org/2000/svg' fill='none'>"
-
-        # Sombra base pan
-        "<ellipse cx='250' cy='370' rx='190' ry='22' fill='rgba(0,0,0,.3)'/>"
-
-        # Cuerpo principal del pan - hogaza redonda
-        "<ellipse cx='250' cy='220' rx='195' ry='145' fill='url(#panBase)'/>"
-        "<ellipse cx='250' cy='210' rx='185' ry='135' fill='url(#panTop)'/>"
-
-        # Greñas / cortes decorativos del pan
-        "<path d='M170 160 Q210 130 250 145 Q290 130 330 160' stroke='rgba(180,110,20,.6)' stroke-width='3' stroke-linecap='round'/>"
-        "<path d='M155 195 Q215 165 250 178 Q285 165 345 195' stroke='rgba(180,110,20,.5)' stroke-width='2.5' stroke-linecap='round'/>"
-        "<path d='M165 230 Q215 205 250 215 Q285 205 335 230' stroke='rgba(180,110,20,.4)' stroke-width='2' stroke-linecap='round'/>"
-
-        # Cruz decorativa artesanal
-        "<path d='M250 115 L250 175' stroke='rgba(200,130,30,.5)' stroke-width='2.5' stroke-linecap='round'/>"
-        "<path d='M220 145 L280 145' stroke='rgba(200,130,30,.5)' stroke-width='2.5' stroke-linecap='round'/>"
-
-        # Brillo superior
-        "<ellipse cx='200' cy='155' rx='55' ry='30' fill='rgba(255,230,150,.08)' transform='rotate(-20 200 155)'/>"
-
-        # Textura poros del pan
-        "<circle cx='185' cy='240' r='5' fill='rgba(150,80,10,.3)'/>"
-        "<circle cx='215' cy='260' r='4' fill='rgba(150,80,10,.25)'/>"
-        "<circle cx='248' cy='245' r='6' fill='rgba(150,80,10,.3)'/>"
-        "<circle cx='278' cy='255' r='4' fill='rgba(150,80,10,.25)'/>"
-        "<circle cx='310' cy='242' r='5' fill='rgba(150,80,10,.3)'/>"
-        "<circle cx='200' cy='285' r='4' fill='rgba(150,80,10,.2)'/>"
-        "<circle cx='235' cy='295' r='5' fill='rgba(150,80,10,.25)'/>"
-        "<circle cx='270' cy='288' r='4' fill='rgba(150,80,10,.2)'/>"
-        "<circle cx='300' cy='278' r='5' fill='rgba(150,80,10,.25)'/>"
-
-        # Espigas de trigo decorativas arriba
-        # Espiga izquierda
-        "<line x1='100' y1='320' x2='100' y2='60' stroke='rgba(245,158,11,.4)' stroke-width='2'/>"
-        "<ellipse cx='100' cy='60' rx='6' ry='14' fill='rgba(245,158,11,.5)' transform='rotate(-10 100 60)'/>"
-        "<ellipse cx='88' cy='80' rx='6' ry='14' fill='rgba(245,158,11,.45)' transform='rotate(-30 88 80)'/>"
-        "<ellipse cx='112' cy='80' rx='6' ry='14' fill='rgba(245,158,11,.45)' transform='rotate(30 112 80)'/>"
-        "<ellipse cx='90' cy='100' rx='6' ry='13' fill='rgba(245,158,11,.4)' transform='rotate(-25 90 100)'/>"
-        "<ellipse cx='110' cy='100' rx='6' ry='13' fill='rgba(245,158,11,.4)' transform='rotate(25 110 100)'/>"
-        "<ellipse cx='92' cy='120' rx='5' ry='12' fill='rgba(245,158,11,.35)' transform='rotate(-20 92 120)'/>"
-        "<ellipse cx='108' cy='120' rx='5' ry='12' fill='rgba(245,158,11,.35)' transform='rotate(20 108 120)'/>"
-
-        # Espiga derecha
-        "<line x1='400' y1='320' x2='400' y2='60' stroke='rgba(245,158,11,.4)' stroke-width='2'/>"
-        "<ellipse cx='400' cy='60' rx='6' ry='14' fill='rgba(245,158,11,.5)' transform='rotate(10 400 60)'/>"
-        "<ellipse cx='388' cy='80' rx='6' ry='14' fill='rgba(245,158,11,.45)' transform='rotate(-30 388 80)'/>"
-        "<ellipse cx='412' cy='80' rx='6' ry='14' fill='rgba(245,158,11,.45)' transform='rotate(30 412 80)'/>"
-        "<ellipse cx='390' cy='100' rx='6' ry='13' fill='rgba(245,158,11,.4)' transform='rotate(-25 390 100)'/>"
-        "<ellipse cx='410' cy='100' rx='6' ry='13' fill='rgba(245,158,11,.4)' transform='rotate(25 410 100)'/>"
-        "<ellipse cx='392' cy='120' rx='5' ry='12' fill='rgba(245,158,11,.35)' transform='rotate(-20 392 120)'/>"
-        "<ellipse cx='408' cy='120' rx='5' ry='12' fill='rgba(245,158,11,.35)' transform='rotate(20 408 120)'/>"
-
-        # Pequeñas estrellitas de harina
-        "<circle cx='140' cy='130' r='2' fill='rgba(255,240,200,.4)'/>"
-        "<circle cx='355' cy='110' r='2' fill='rgba(255,240,200,.4)'/>"
-        "<circle cx='160' cy='320' r='2.5' fill='rgba(255,240,200,.3)'/>"
-        "<circle cx='350' cy='335' r='2' fill='rgba(255,240,200,.3)'/>"
-        "<circle cx='130' cy='270' r='1.5' fill='rgba(255,240,200,.35)'/>"
-        "<circle cx='365' cy='280' r='1.5' fill='rgba(255,240,200,.35)'/>"
-
-        # Gradientes
-        "<defs>"
-        "<radialGradient id='panBase' cx='50%' cy='45%' r='55%'>"
-        "<stop offset='0%' stop-color='rgba(217,119,6,1)'/>"
-        "<stop offset='60%' stop-color='rgba(180,83,9,1)'/>"
-        "<stop offset='100%' stop-color='rgba(120,53,15,1)'/>"
-        "</radialGradient>"
-        "<radialGradient id='panTop' cx='40%' cy='35%' r='60%'>"
-        "<stop offset='0%' stop-color='rgba(251,191,36,.9)'/>"
-        "<stop offset='40%' stop-color='rgba(245,158,11,.8)'/>"
-        "<stop offset='100%' stop-color='rgba(180,83,9,.7)'/>"
-        "</radialGradient>"
-        "</defs>"
-
-        "</svg>"
+        + panes_html
+        + carritos_html +
         "</div>"
 
-        # 🛒 CARRITO DE MERCADO gigante derecha
-        "<div class='cart-wrap'>"
-        "<svg viewBox='0 0 500 420' xmlns='http://www.w3.org/2000/svg' fill='none'>"
-
-        # Sombra ruedas
-        "<ellipse cx='155' cy='400' rx='35' ry='10' fill='rgba(0,0,0,.35)'/>"
-        "<ellipse cx='345' cy='400' rx='35' ry='10' fill='rgba(0,0,0,.35)'/>"
-
-        # Mango del carrito
-        "<path d='M80 60 Q80 35 105 35 L395 35 Q420 35 420 60' stroke='url(#handleGrad)' stroke-width='14' stroke-linecap='round' fill='none'/>"
-        "<path d='M80 60 Q80 35 105 35 L395 35 Q420 35 420 60' stroke='rgba(255,255,255,.1)' stroke-width='6' stroke-linecap='round' fill='none'/>"
-
-        # Estructura principal del carrito (alambres)
-        # Marco exterior
-        "<path d='M60 80 L80 320 Q82 340 102 340 L398 340 Q418 340 420 320 L440 80 Z' fill='url(#cartBody)' stroke='rgba(255,255,255,.15)' stroke-width='1.5'/>"
-
-        # Alambres horizontales del cuerpo
-        "<line x1='65' y1='130' x2='435' y2='130' stroke='rgba(255,255,255,.12)' stroke-width='1.5'/>"
-        "<line x1='68' y1='180' x2='432' y2='180' stroke='rgba(255,255,255,.12)' stroke-width='1.5'/>"
-        "<line x1='71' y1='230' x2='429' y2='230' stroke='rgba(255,255,255,.12)' stroke-width='1.5'/>"
-        "<line x1='74' y1='280' x2='426' y2='280' stroke='rgba(255,255,255,.12)' stroke-width='1.5'/>"
-
-        # Alambres verticales del cuerpo
-        "<line x1='115' y1='80' x2='105' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
-        "<line x1='165' y1='80' x2='155' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
-        "<line x1='215' y1='80' x2='210' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
-        "<line x1='250' y1='80' x2='250' y2='340' stroke='rgba(255,255,255,.1)' stroke-width='1.5'/>"
-        "<line x1='285' y1='80' x2='290' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
-        "<line x1='335' y1='80' x2='345' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
-        "<line x1='385' y1='80' x2='395' y2='340' stroke='rgba(255,255,255,.08)' stroke-width='1.2'/>"
-
-        # Base del carrito
-        "<path d='M80 320 L82 340 Q84 356 102 356 L398 356 Q416 356 418 340 L420 320' stroke='url(#baseGrad)' stroke-width='10' stroke-linecap='round' fill='none'/>"
-
-        # Soporte diagonal izquierdo (pata)
-        "<line x1='105' y1='356' x2='145' y2='385' stroke='url(#legGrad)' stroke-width='9' stroke-linecap='round'/>"
-        # Soporte diagonal derecho (pata)
-        "<line x1='395' y1='356' x2='355' y2='385' stroke='url(#legGrad)' stroke-width='9' stroke-linecap='round'/>"
-
-        # Rueda izquierda
-        "<circle cx='145' cy='390' r='26' fill='url(#wheelBody)' stroke='rgba(255,255,255,.2)' stroke-width='2'/>"
-        "<circle cx='145' cy='390' r='12' fill='none' stroke='rgba(255,255,255,.15)' stroke-width='1.5'/>"
-        "<circle cx='145' cy='390' r='4' fill='rgba(255,255,255,.2)'/>"
-        "<line x1='145' y1='365' x2='145' y2='415' stroke='rgba(255,255,255,.12)' stroke-width='1.2'/>"
-        "<line x1='120' y1='390' x2='170' y2='390' stroke='rgba(255,255,255,.12)' stroke-width='1.2'/>"
-        "<line x1='128' y1='373' x2='162' y2='407' stroke='rgba(255,255,255,.08)' stroke-width='1'/>"
-        "<line x1='162' y1='373' x2='128' y2='407' stroke='rgba(255,255,255,.08)' stroke-width='1'/>"
-
-        # Rueda derecha
-        "<circle cx='355' cy='390' r='26' fill='url(#wheelBody)' stroke='rgba(255,255,255,.2)' stroke-width='2'/>"
-        "<circle cx='355' cy='390' r='12' fill='none' stroke='rgba(255,255,255,.15)' stroke-width='1.5'/>"
-        "<circle cx='355' cy='390' r='4' fill='rgba(255,255,255,.2)'/>"
-        "<line x1='355' y1='365' x2='355' y2='415' stroke='rgba(255,255,255,.12)' stroke-width='1.2'/>"
-        "<line x1='330' y1='390' x2='380' y2='390' stroke='rgba(255,255,255,.12)' stroke-width='1.2'/>"
-        "<line x1='338' y1='373' x2='372' y2='407' stroke='rgba(255,255,255,.08)' stroke-width='1'/>"
-        "<line x1='372' y1='373' x2='338' y2='407' stroke='rgba(255,255,255,.08)' stroke-width='1'/>"
-
-        # Productos dentro del carrito (siluetas)
-        # Caja
-        "<rect x='150' y='100' width='65' height='55' rx='5' fill='rgba(99,102,241,.25)' stroke='rgba(99,102,241,.4)' stroke-width='1.5'/>"
-        "<line x1='150' y1='120' x2='215' y2='120' stroke='rgba(99,102,241,.3)' stroke-width='1.2'/>"
-        "<line x1='182' y1='100' x2='182' y2='155' stroke='rgba(99,102,241,.3)' stroke-width='1.2'/>"
-
-        # Bolsa redonda
-        "<ellipse cx='270' cy='130' rx='38' ry='40' fill='rgba(245,158,11,.2)' stroke='rgba(245,158,11,.35)' stroke-width='1.5'/>"
-        "<path d='M255 100 Q270 90 285 100' stroke='rgba(245,158,11,.4)' stroke-width='2' stroke-linecap='round'/>"
-
-        # Botella
-        "<rect x='325' y='95' width='28' height='65' rx='6' fill='rgba(34,197,94,.2)' stroke='rgba(34,197,94,.35)' stroke-width='1.5'/>"
-        "<rect x='331' y='85' width='16' height='14' rx='3' fill='rgba(34,197,94,.25)' stroke='rgba(34,197,94,.35)' stroke-width='1'/>"
-
-        # Brillo interior carrito
-        "<path d='M80 80 L100 80 L88 280 L68 280 Z' fill='url(#cartShine)'/>"
-
-        # Destellos
-        "<circle cx='70' cy='70' r='3' fill='rgba(255,255,255,.4)'/>"
-        "<circle cx='430' cy='70' r='3' fill='rgba(255,255,255,.4)'/>"
-        "<circle cx='250' cy='40' r='2.5' fill='rgba(255,255,255,.5)'/>"
-
-        # Etiqueta de precio ficticia
-        "<rect x='180' y='240' width='70' height='28' rx='6' fill='rgba(239,68,68,.2)' stroke='rgba(239,68,68,.35)' stroke-width='1'/>"
-        "<text x='215' y='258' text-anchor='middle' font-size='11' font-weight='700' fill='rgba(255,100,100,.7)' font-family='system-ui'>OFERTA</text>"
-
-        "<defs>"
-        "<linearGradient id='handleGrad' x1='0%' y1='0%' x2='100%' y2='0%'>"
-        "<stop offset='0%' stop-color='rgba(148,163,184,.6)'/>"
-        "<stop offset='50%' stop-color='rgba(226,232,240,.8)'/>"
-        "<stop offset='100%' stop-color='rgba(148,163,184,.6)'/>"
-        "</linearGradient>"
-        "<linearGradient id='cartBody' x1='0%' y1='0%' x2='100%' y2='100%'>"
-        "<stop offset='0%' stop-color='rgba(99,102,241,.18)'/>"
-        "<stop offset='100%' stop-color='rgba(67,56,202,.08)'/>"
-        "</linearGradient>"
-        "<linearGradient id='baseGrad' x1='0%' y1='0%' x2='100%' y2='0%'>"
-        "<stop offset='0%' stop-color='rgba(148,163,184,.5)'/>"
-        "<stop offset='50%' stop-color='rgba(226,232,240,.7)'/>"
-        "<stop offset='100%' stop-color='rgba(148,163,184,.5)'/>"
-        "</linearGradient>"
-        "<linearGradient id='legGrad' x1='0%' y1='0%' x2='0%' y2='100%'>"
-        "<stop offset='0%' stop-color='rgba(148,163,184,.6)'/>"
-        "<stop offset='100%' stop-color='rgba(100,116,139,.4)'/>"
-        "</linearGradient>"
-        "<radialGradient id='wheelBody' cx='40%' cy='35%' r='60%'>"
-        "<stop offset='0%' stop-color='rgba(148,163,184,.5)'/>"
-        "<stop offset='100%' stop-color='rgba(51,65,85,.6)'/>"
-        "</radialGradient>"
-        "<linearGradient id='cartShine' x1='0%' y1='0%' x2='100%' y2='0%'>"
-        "<stop offset='0%' stop-color='rgba(255,255,255,.04)'/>"
-        "<stop offset='100%' stop-color='rgba(255,255,255,0)'/>"
-        "</linearGradient>"
-        "</defs>"
-
-        "</svg>"
-        "</div>"
-
-        "</div>"  # end .bg-art
-
-        # ── Aurora ──────────────────────────────────────────────
+        # Aurora
         "<div class='au'><div class='a1'></div><div class='a2'></div><div class='a3'></div></div>"
-
-        # Grid
         "<div class='gd'></div>"
 
-        # ── SPLASH ──────────────────────────────────────────────
+        # Splash
         "<div id='splash' style='"
         "position:fixed;inset:0;z-index:9999;"
-        "background:#060612;"
+        "background:#07070f;"
         "display:flex;flex-direction:column;"
         "align-items:center;justify-content:center;"
-        "transition:opacity 1.2s ease,visibility 1.2s ease'>"
-
+        "transition:opacity 1s ease,visibility 1s ease'>"
         "<div style='"
-        "width:96px;height:96px;border-radius:26px;"
+        "width:88px;height:88px;border-radius:24px;"
         "background:linear-gradient(135deg,#3730a3,#4f46e5,#6366f1);"
         "display:flex;align-items:center;justify-content:center;"
-        "font-size:2.8rem;margin-bottom:28px;"
+        "font-size:2.6rem;margin-bottom:24px;"
         "box-shadow:0 0 0 12px rgba(79,70,229,.1),"
         "0 0 0 24px rgba(79,70,229,.05),"
         "0 20px 60px rgba(79,70,229,.55);"
         "animation:sp-pop .7s cubic-bezier(.34,1.56,.64,1) both'>🏪</div>"
-
         "<h1 style='"
-        "font-family:Syne,sans-serif;"
-        "font-size:clamp(2rem,5vw,3.2rem);font-weight:900;"
-        "letter-spacing:-.04em;text-align:center;margin-bottom:10px;"
-        "background:linear-gradient(145deg,#fff 30%,#818cf8 65%,#c4b5fd);"
+        "font-size:clamp(1.8rem,5vw,3rem);font-weight:900;"
+        "letter-spacing:-.04em;text-align:center;margin-bottom:8px;"
+        "background:linear-gradient(135deg,#fff 30%,#818cf8 65%,#c4b5fd);"
         "-webkit-background-clip:text;-webkit-text-fill-color:transparent;"
         "background-clip:text;"
         "opacity:0;animation:sp-up .7s ease .35s both'>GestorPro</h1>"
-
-        "<p style='"
-        "font-size:.92rem;color:rgba(255,255,255,.35);font-weight:500;"
-        "text-align:center;margin-bottom:36px;"
+        "<p style='font-size:.9rem;color:rgba(255,255,255,.38);font-weight:500;"
+        "text-align:center;margin-bottom:32px;"
         "opacity:0;animation:sp-up .7s ease .55s both'>"
-        "Sistema Multi-Tienda · Colombia 🇨🇴</p>"
-
-        "<div style='"
-        "width:180px;height:3px;background:rgba(255,255,255,.07);"
+        "Bienvenido · Sistema Multi-Tienda Colombia</p>"
+        "<div style='width:180px;height:3px;background:rgba(255,255,255,.08);"
         "border-radius:99px;overflow:hidden;"
         "opacity:0;animation:sp-up .5s ease .7s both'>"
-        "<div id='sp-bar' style='"
-        "height:100%;width:0;border-radius:99px;"
-        "background:linear-gradient(90deg,#4338ca,#818cf8,#f0abfc);"
-        "transition:width 1.5s cubic-bezier(.4,0,.2,1)'></div>"
+        "<div id='sp-bar' style='height:100%;width:0;border-radius:99px;"
+        "background:linear-gradient(90deg,#4338ca,#818cf8,#c4b5fd);"
+        "transition:width 1.4s cubic-bezier(.4,0,.2,1)'></div>"
         "</div>"
-
-        "<div style='"
-        "display:flex;gap:6px;margin-top:20px;"
+        "<div style='display:flex;gap:6px;justify-content:center;margin-top:18px;"
         "opacity:0;animation:sp-up .5s ease .75s both'>"
-        "<span style='width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);animation:sp-dt .9s ease infinite'></span>"
-        "<span style='width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);animation:sp-dt .9s ease .2s infinite'></span>"
-        "<span style='width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);animation:sp-dt .9s ease .4s infinite'></span>"
+        "<span style='width:6px;height:6px;border-radius:50%;"
+        "background:rgba(255,255,255,.3);animation:sp-dt .9s ease infinite'></span>"
+        "<span style='width:6px;height:6px;border-radius:50%;"
+        "background:rgba(255,255,255,.3);animation:sp-dt .9s ease .2s infinite'></span>"
+        "<span style='width:6px;height:6px;border-radius:50%;"
+        "background:rgba(255,255,255,.3);animation:sp-dt .9s ease .4s infinite'></span>"
         "</div>"
         "</div>"
 
-        # ── PÁGINA ──────────────────────────────────────────────
+        # Página principal
         "<div class='page'>"
         "<div class='hero'>"
-
-        "<div class='hero-eyebrow'>"
-        "<span class='eyebrow-dot'></span>"
-        "Sistema en línea"
-        "</div>"
-
         "<div class='hero-logo'>🏪</div>"
         "<h1>GestorPro</h1>"
-        "<p>Gestión Multi-Tienda · Panaderías & Comercios · Colombia</p>"
-
-        "<div class='deco-tags'>"
-        "<span class='dtag dtag-pan'>🍞 Panaderías</span>"
-        "<span class='dtag dtag-shop'>🛒 Tiendas</span>"
-        "<span class='dtag dtag-col'>🇨🇴 Colombia</span>"
-        "</div>"
-
-        "<div class='hero-stats'>"
-        "<span><span class='stat-val'>" + str(n_tiendas) + "</span> tienda" + ("s" if n_tiendas != 1 else "") + "</span>"
-        "<div class='stat-sep'></div>"
-        "<span>🟢 <span class='stat-val'>En línea</span></span>"
-        "<div class='stat-sep'></div>"
-        "<span>🔒 <span class='stat-val'>Seguro</span></span>"
-        "</div>"
-
-        "</div>"  # end .hero
+        "<p>Sistema de Gestión Multi-Tienda · Colombia</p>"
+        "<div class='hero-badge'>"
+        + str(n_tiendas) + " tienda" + ("s" if n_tiendas != 1 else "") + " disponible" + ("s" if n_tiendas != 1 else "")
+        + "</div></div>"
 
         "<div class='grid'>"
         + cards +
         "</div>"
 
         "<div class='footer'>"
-        "© 2026 GestorPro &nbsp;·&nbsp; <a href='/super'>⚙ Acceso sistema</a>"
-        "</div>"
-        "</div>"  # end .page
+        "© 2026 GestorPro · <a href='/super'>⚙ Acceso sistema</a>"
+        "</div></div>"
 
-        # ── SCRIPTS ─────────────────────────────────────────────
+        # Scripts
         "<script>"
-
         # Splash
-        "setTimeout(function(){document.getElementById('sp-bar').style.width='100%';},150);"
+        "setTimeout(function(){document.getElementById('sp-bar').style.width='100%';},200);"
         "setTimeout(function(){"
         "  var sp=document.getElementById('splash');"
-        "  if(sp){sp.style.opacity='0';sp.style.visibility='hidden';sp.style.pointerEvents='none';}"
-        "},2300);"
-
-        # Universo canvas
+        "  if(sp){sp.style.opacity='0';sp.style.visibility='hidden';"
+        "  sp.style.pointerEvents='none';}"
+        "},2200);"
+        # Estrellas canvas
         "(function(){"
         "var c=document.getElementById('cvs');"
         "var ctx=c.getContext('2d');"
         "var W,H,stars=[];"
-        "function resize(){W=c.width=window.innerWidth;H=c.height=window.innerHeight;mkStars();}"
-        "function mkStars(){"
+        "function resize(){W=c.width=window.innerWidth;H=c.height=window.innerHeight;mk();}"
+        "function mk(){"
         "stars=[];"
-        "var ns=Math.floor(W*H/1800);"
-        "var cols=['#fff','#c4b5fd','#93c5fd','#6ee7b7','#fde68a','#fdba74'];"
-        "for(var i=0;i<ns;i++)stars.push({"
+        "var n=Math.floor(W*H/2200);"
+        "var cols=['#fff','#c4b5fd','#93c5fd','#6ee7b7','#fde68a','#fb923c'];"
+        "for(var i=0;i<n;i++)stars.push({"
         "  x:Math.random()*W,y:Math.random()*H,"
-        "  r:Math.random()*1.5+.15,"
-        "  a:Math.random()*.7+.1,"
-        "  spd:Math.random()*.015+.003,"
+        "  r:Math.random()*1.4+.2,"
+        "  a:Math.random()*.8+.1,"
+        "  spd:Math.random()*.012+.003,"
         "  phase:Math.random()*Math.PI*2,"
         "  col:cols[Math.floor(Math.random()*cols.length)]"
         "});}"
-        "function draw(t){"
+        "function draw(){"
         "ctx.clearRect(0,0,W,H);"
+        "var now=Date.now()/1000;"
         "stars.forEach(function(s){"
-        "  var alpha=s.a*(0.5+0.5*Math.sin(t*s.spd+s.phase));"
-        "  ctx.globalAlpha=alpha;"
+        "  var alp=s.a*(.5+.5*Math.sin(now*s.spd*60+s.phase));"
+        "  ctx.globalAlpha=alp;"
         "  ctx.fillStyle=s.col;"
-        "  ctx.beginPath();"
-        "  ctx.arc(s.x,s.y,s.r,0,Math.PI*2);"
-        "  ctx.fill();"
+        "  ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();"
+        "  if(s.r>1.1){"
+        "    ctx.save();ctx.globalAlpha=alp*.35;"
+        "    ctx.strokeStyle=s.col;ctx.lineWidth=.5;"
+        "    ctx.beginPath();"
+        "    ctx.moveTo(s.x-s.r*3,s.y);ctx.lineTo(s.x+s.r*3,s.y);"
+        "    ctx.moveTo(s.x,s.y-s.r*3);ctx.lineTo(s.x,s.y+s.r*3);"
+        "    ctx.stroke();ctx.restore();"
+        "  }"
         "});"
         "ctx.globalAlpha=1;"
-        "requestAnimationFrame(draw);"
-        "}"
+        "requestAnimationFrame(draw);}"
+        "resize();draw();"
         "window.addEventListener('resize',resize);"
-        "resize();"
-        "requestAnimationFrame(draw);"
         "})();"
-
         "</script>"
         "</body></html>"
     )
-
 # ================================================================
 #  LOGIN / ENTRAR / REGISTRO
 # ================================================================
@@ -9221,23 +9116,103 @@ def _bot_faq(msg, t, productos, promos):
         return f"😕 No hay productos disponibles ahora. Contáctanos: {wa_lnk}", None, True
 
     # ── 4. AGOTADOS ───────────────────────────────────────────────
-    if any(w in tl for w in ["agotado","agotados","sin stock","no hay","se acabó","se acabo",
-                              "no tienen","no queda","terminó","termino","se acabaron","out of stock",
-                              "cuándo llega","cuando llega","cuándo reponen","cuando reponen"]):
-        prod_m = buscar_prod(tl)
-        if prod_m and prod_m.get("cantidad",0) <= 0:
-            return (f"❌ **{prod_m['nombre']}** está **agotado**.\n\n"
-                    f"Para saber cuándo habrá disponibilidad:\n"
-                    f"📲 Escríbenos: {wa_lnk}\n\n"
-                    f"¿Quieres ver productos similares disponibles? 📦"), prod_m, True
-        if agot_prods:
-            txt = f"❌ **Productos agotados en {nom} ({len(agot_prods)}):**\n\n"
-            for p in agot_prods[:6]: txt += f"• {p['nombre']}\n"
-            txt += f"\n✅ Tenemos **{len(disp_prods)} productos disponibles**.\n"
-            txt += f"Para reposiciones: {wa_lnk}"
-            return txt, primer_con_img(), True
-        return f"🎉 ¡Todos los productos de **{nom}** están disponibles!\n\n¡Aprovecha! 🛒", primer_con_img(), True
+OUT_OF_STOCK_KEYWORDS = {
+    "agotado", "agotados", "sin stock", "no hay", "se acabó", "se acabo",
+    "no tienen", "no queda", "terminó", "termino", "se acabaron",
+    "out of stock", "cuándo llega", "cuando llega", "cuándo reponen",
+    "cuando reponen", "que esta agotado", "qué está agotado",
+    "que se acabo", "qué falta", "que falta", "no tienen de",
+    "no hay de", "no queda nada"
+}
 
+
+def is_out_of_stock_query(text: str) -> bool:
+    return any(k in text for k in OUT_OF_STOCK_KEYWORDS)
+
+
+def build_alternatives(prod_m, disp_prods, fmt) -> str:
+    alt = [p for p in disp_prods if p.get("categoria") == prod_m.get("categoria")][:3]
+    if not alt:
+        return ""
+
+    lines = ["\n\n📦 **Alternativas disponibles:**"]
+    for a in alt:
+        lines.append(f"  • {a['nombre']} — {fmt(a['precio'])} ✅")
+    return "\n".join(lines)
+
+
+def handle_stock_query(tl, buscar_prod, disp_prods, agot_prods, fmt, wa_lnk, nom, primer_con_img):
+    if not is_out_of_stock_query(tl):
+        return None, None, False
+
+    prod_m = buscar_prod(tl)
+
+    # Caso 1: producto agotado
+    if prod_m and prod_m.get("cantidad", 0) <= 0:
+        alt_txt = build_alternatives(prod_m, disp_prods, fmt)
+
+        msg = (
+            f"❌ **{prod_m['nombre']}** está **agotado**.\n\n"
+            f"💰 Precio habitual: {fmt(prod_m['precio'])} / {prod_m.get('unidad','u')}\n"
+            f"📂 Categoría: {prod_m.get('categoria','General')}\n\n"
+            f"📲 Consultar reposición: {wa_lnk}"
+            f"{alt_txt}"
+        )
+        return msg, prod_m, True
+
+    # Caso 2: producto disponible
+    if prod_m and prod_m.get("cantidad", 0) > 0:
+        msg = (
+            f"✅ **{prod_m['nombre']}** está **disponible**.\n\n"
+            f"📦 Stock: **{prod_m['cantidad']} {prod_m.get('unidad','uds')}**\n"
+            f"💰 Precio: **{fmt(prod_m['precio'])}** / {prod_m.get('unidad','u')}\n\n"
+            f"🛒 ¡Agrégalo al carrito!"
+        )
+        return msg, prod_m, True
+
+    # Caso 3: lista de agotados
+    if agot_prods:
+        lines = [f"❌ **Productos agotados en {nom}** ({len(agot_prods)}):\n"]
+        for p in agot_prods[:8]:
+            line = f"• **{p['nombre']}**"
+            if p.get("categoria"):
+                line += f" — _{p['categoria']}_"
+            lines.append(line)
+
+        if len(agot_prods) > 8:
+            lines.append(f"_...y {len(agot_prods)-8} más_")
+
+        lines.append(f"\n✅ Disponibles: **{len(disp_prods)} productos**")
+        lines.append(f"📲 Reposiciones: {wa_lnk}")
+
+        return "\n".join(lines), None, True
+
+    # Caso 4: todo disponible
+    msg = (
+        f"🎉 Todos los productos de **{nom}** están disponibles.\n\n"
+        f"📦 Total: **{len(disp_prods)} productos**\n"
+        f"🛒 ¡Compra ahora!"
+    )
+    return msg, primer_con_img(), True
+    # ── 5. PRECIO ESPECÍFICO ──────────────────────────────────────
+    if any(w in tl for w in ["precio","cuánto cuesta","cuanto vale","cuánto vale","vale",
+                              "cuesta","costo","cuanto es","cuánto","cuanto","tarifa","a cuánto",
+                              "a cuanto","cuánto me sale","cuanto me sale","sale el","sale la"]):
+        prod_m = buscar_prod(tl)
+        if prod_m:
+            disp = prod_m.get("cantidad",0) > 0
+            return (f"🏷️ **{prod_m['nombre']}**\n\n"
+                    f"💰 Precio: **{fmt(prod_m['precio'])}** / {prod_m.get('unidad','unidad')}\n"
+                    f"{'✅ Disponible: '+str(prod_m['cantidad'])+' '+str(prod_m.get('unidad','uds')) if disp else '❌ Agotado por el momento'}\n"
+                    f"🏷️ Categoría: {prod_m.get('categoria','General')}\n\n"
+                    f"{'🛒 ¡Agrégalo al carrito!' if disp else '📲 Consulta reposición: '+wa_lnk}"), prod_m, True
+        if disp_prods:
+            txt = f"💰 **Lista de precios — {nom}:**\n\n"
+            for p in disp_prods[:8]:
+                txt += f"• **{p['nombre']}** → {fmt(p['precio'])} / {p.get('unidad','u')}\n"
+            txt += f"\nEscribe el nombre del producto para ver detalles 📋"
+            return txt, primer_con_img(), True
+        return f"📋 Sin precios disponibles ahora. Consulta: {wa_lnk}", None, True
     # ── 5. PRECIO ESPECÍFICO ──────────────────────────────────────
     if any(w in tl for w in ["precio","cuánto cuesta","cuanto vale","cuánto vale","vale",
                               "cuesta","costo","cuanto es","cuánto","cuanto","tarifa","a cuánto",
