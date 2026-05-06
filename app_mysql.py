@@ -9116,84 +9116,51 @@ def _bot_faq(msg, t, productos, promos):
         return f"😕 No hay productos disponibles ahora. Contáctanos: {wa_lnk}", None, True
 
     # ── 4. AGOTADOS ───────────────────────────────────────────────
-OUT_OF_STOCK_KEYWORDS = {
-    "agotado", "agotados", "sin stock", "no hay", "se acabó", "se acabo",
-    "no tienen", "no queda", "terminó", "termino", "se acabaron",
-    "out of stock", "cuándo llega", "cuando llega", "cuándo reponen",
-    "cuando reponen", "que esta agotado", "qué está agotado",
-    "que se acabo", "qué falta", "que falta", "no tienen de",
-    "no hay de", "no queda nada"
-}
-
-
-def is_out_of_stock_query(text: str) -> bool:
-    return any(k in text for k in OUT_OF_STOCK_KEYWORDS)
-
-
-def build_alternatives(prod_m, disp_prods, fmt) -> str:
-    alt = [p for p in disp_prods if p.get("categoria") == prod_m.get("categoria")][:3]
-    if not alt:
-        return ""
-
-    lines = ["\n\n📦 **Alternativas disponibles:**"]
-    for a in alt:
-        lines.append(f"  • {a['nombre']} — {fmt(a['precio'])} ✅")
-    return "\n".join(lines)
-
-
-def handle_stock_query(tl, buscar_prod, disp_prods, agot_prods, fmt, wa_lnk, nom, primer_con_img):
-    if not is_out_of_stock_query(tl):
-        return None, None, False
-
-    prod_m = buscar_prod(tl)
-
-    # Caso 1: producto agotado
-    if prod_m and prod_m.get("cantidad", 0) <= 0:
-        alt_txt = build_alternatives(prod_m, disp_prods, fmt)
-
-        msg = (
-            f"❌ **{prod_m['nombre']}** está **agotado**.\n\n"
-            f"💰 Precio habitual: {fmt(prod_m['precio'])} / {prod_m.get('unidad','u')}\n"
-            f"📂 Categoría: {prod_m.get('categoria','General')}\n\n"
-            f"📲 Consultar reposición: {wa_lnk}"
-            f"{alt_txt}"
-        )
-        return msg, prod_m, True
-
-    # Caso 2: producto disponible
-    if prod_m and prod_m.get("cantidad", 0) > 0:
-        msg = (
-            f"✅ **{prod_m['nombre']}** está **disponible**.\n\n"
-            f"📦 Stock: **{prod_m['cantidad']} {prod_m.get('unidad','uds')}**\n"
-            f"💰 Precio: **{fmt(prod_m['precio'])}** / {prod_m.get('unidad','u')}\n\n"
-            f"🛒 ¡Agrégalo al carrito!"
-        )
-        return msg, prod_m, True
-
-    # Caso 3: lista de agotados
-    if agot_prods:
-        lines = [f"❌ **Productos agotados en {nom}** ({len(agot_prods)}):\n"]
-        for p in agot_prods[:8]:
-            line = f"• **{p['nombre']}**"
-            if p.get("categoria"):
-                line += f" — _{p['categoria']}_"
-            lines.append(line)
-
-        if len(agot_prods) > 8:
-            lines.append(f"_...y {len(agot_prods)-8} más_")
-
-        lines.append(f"\n✅ Disponibles: **{len(disp_prods)} productos**")
-        lines.append(f"📲 Reposiciones: {wa_lnk}")
-
-        return "\n".join(lines), None, True
-
-    # Caso 4: todo disponible
-    msg = (
-        f"🎉 Todos los productos de **{nom}** están disponibles.\n\n"
-        f"📦 Total: **{len(disp_prods)} productos**\n"
-        f"🛒 ¡Compra ahora!"
-    )
-    return msg, primer_con_img(), True
+        if any(w in tl for w in ["agotado","agotados","sin stock","no hay","se acabó","se acabo",
+                              "no tienen","no queda","terminó","termino","se acabaron","out of stock",
+                              "cuándo llega","cuando llega","cuándo reponen","cuando reponen",
+                              "que esta agotado","qué está agotado","que se acabo","qué falta",
+                              "que falta","no tienen de","no hay de","no queda nada"]):
+        prod_m = buscar_prod(tl)
+        # Producto específico pedido y está agotado
+        if prod_m and prod_m.get("cantidad",0) <= 0:
+            alt = [p for p in disp_prods if p.get("categoria") == prod_m.get("categoria")][:3]
+            alt_txt = ""
+            if alt:
+                alt_txt = "\n\n📦 **Alternativas disponibles:**\n"
+                for a in alt:
+                    alt_txt += f"  • {a['nombre']} — {fmt(a['precio'])} ✅\n"
+            return (f"❌ **{prod_m['nombre']}** está **agotado**.\n\n"
+                    f"💰 Precio habitual: {fmt(prod_m['precio'])} / {prod_m.get('unidad','u')}\n"
+                    f"📂 Categoría: {prod_m.get('categoria','General')}\n\n"
+                    f"Para saber cuándo habrá disponibilidad:\n"
+                    f"📲 {wa_lnk}"
+                    f"{alt_txt}"), prod_m, True
+        # Producto específico pedido pero SÍ está disponible
+        if prod_m and prod_m.get("cantidad",0) > 0:
+            return (f"✅ **{prod_m['nombre']}** está **disponible**.\n\n"
+                    f"📦 Stock actual: **{prod_m['cantidad']} {prod_m.get('unidad','uds')}**\n"
+                    f"💰 Precio: **{fmt(prod_m['precio'])}** / {prod_m.get('unidad','u')}\n\n"
+                    f"🛒 ¡Agrégalo al carrito ahora!"), prod_m, True
+        # Lista general de agotados
+        if agot_prods:
+            txt = f"❌ **Productos agotados en {nom}** ({len(agot_prods)} en total):\n\n"
+            for p in agot_prods[:8]:
+                txt += f"• **{p['nombre']}**"
+                if p.get("categoria"):
+                    txt += f" — _{p['categoria']}_"
+                txt += "\n"
+            if len(agot_prods) > 8:
+                txt += f"_...y {len(agot_prods)-8} más_\n"
+            txt += f"\n✅ Sí tenemos disponibles: **{len(disp_prods)} productos**.\n"
+            txt += f"📲 Reposiciones: {wa_lnk}"
+            # Retorna None para no mostrar tarjeta de producto disponible
+            return txt, None, True
+        # No hay ningún agotado
+        return (f"🎉 ¡Excelente noticia! Todos los productos de **{nom}** "
+                f"están disponibles en este momento.\n\n"
+                f"📦 Tenemos **{len(disp_prods)} productos** listos para ti.\n"
+                f"¡Aprovecha! 🛒"), primer_con_img(), True
     # ── 5. PRECIO ESPECÍFICO ──────────────────────────────────────
     if any(w in tl for w in ["precio","cuánto cuesta","cuanto vale","cuánto vale","vale",
                               "cuesta","costo","cuanto es","cuánto","cuanto","tarifa","a cuánto",
