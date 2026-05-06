@@ -9116,7 +9116,7 @@ def _bot_faq(msg, t, productos, promos):
         return f"😕 No hay productos disponibles ahora. Contáctanos: {wa_lnk}", None, True
 
     # ── 4. AGOTADOS ───────────────────────────────────────────────
-        if any(w in tl for w in ["agotado","agotados","sin stock","no hay","se acabó","se acabo",
+    if any(w in tl for w in ["agotado","agotados","sin stock","no hay","se acabó","se acabo",
                               "no tienen","no queda","terminó","termino","se acabaron","out of stock",
                               "cuándo llega","cuando llega","cuándo reponen","cuando reponen",
                               "que esta agotado","qué está agotado","que se acabo","qué falta",
@@ -9161,25 +9161,6 @@ def _bot_faq(msg, t, productos, promos):
                 f"están disponibles en este momento.\n\n"
                 f"📦 Tenemos **{len(disp_prods)} productos** listos para ti.\n"
                 f"¡Aprovecha! 🛒"), primer_con_img(), True
-    # ── 5. PRECIO ESPECÍFICO ──────────────────────────────────────
-    if any(w in tl for w in ["precio","cuánto cuesta","cuanto vale","cuánto vale","vale",
-                              "cuesta","costo","cuanto es","cuánto","cuanto","tarifa","a cuánto",
-                              "a cuanto","cuánto me sale","cuanto me sale","sale el","sale la"]):
-        prod_m = buscar_prod(tl)
-        if prod_m:
-            disp = prod_m.get("cantidad",0) > 0
-            return (f"🏷️ **{prod_m['nombre']}**\n\n"
-                    f"💰 Precio: **{fmt(prod_m['precio'])}** / {prod_m.get('unidad','unidad')}\n"
-                    f"{'✅ Disponible: '+str(prod_m['cantidad'])+' '+str(prod_m.get('unidad','uds')) if disp else '❌ Agotado por el momento'}\n"
-                    f"🏷️ Categoría: {prod_m.get('categoria','General')}\n\n"
-                    f"{'🛒 ¡Agrégalo al carrito!' if disp else '📲 Consulta reposición: '+wa_lnk}"), prod_m, True
-        if disp_prods:
-            txt = f"💰 **Lista de precios — {nom}:**\n\n"
-            for p in disp_prods[:8]:
-                txt += f"• **{p['nombre']}** → {fmt(p['precio'])} / {p.get('unidad','u')}\n"
-            txt += f"\nEscribe el nombre del producto para ver detalles 📋"
-            return txt, primer_con_img(), True
-        return f"📋 Sin precios disponibles ahora. Consulta: {wa_lnk}", None, True
     # ── 5. PRECIO ESPECÍFICO ──────────────────────────────────────
     if any(w in tl for w in ["precio","cuánto cuesta","cuanto vale","cuánto vale","vale",
                               "cuesta","costo","cuanto es","cuánto","cuanto","tarifa","a cuánto",
