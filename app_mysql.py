@@ -1780,7 +1780,8 @@ def base(title, content, tid=None):
     return (
         f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
         f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        f"<title>{title} &middot; GestorPro</title>"
+        f"<title>{title} · GestorPro</title>"
+        f"<meta name='robots' content='noindex, nofollow'>"
         f"<style>{css(pr)}</style>"
         f"</head><body>"
         + ov
@@ -1890,7 +1891,7 @@ def index():
                 "<div style='font-size:4rem'>🏪</div>"
                 "<h1 style='font-weight:900'>GestorPro</h1>"
                 "<p style='opacity:.4'>Sin tiendas activas.</p></body></html>")
-
+ 
     ids     = tuple(t["id"] for t in tiendas)
     fmt_ids = ",".join(["%s"] * len(ids))
     prod_map  = {r["tienda_id"]: r["c"] for r in (db_query(
@@ -1899,7 +1900,7 @@ def index():
     promo_map = {r["tienda_id"]: r["c"] for r in (db_query(
         f"SELECT tienda_id,COUNT(*) as c FROM promociones WHERE tienda_id IN ({fmt_ids}) AND activa=1 GROUP BY tienda_id",
         ids, fetchall=True) or [])}
-
+ 
     cards = ""
     for t in tiendas:
         tid    = t["id"]
@@ -1907,7 +1908,7 @@ def index():
         n_prod = prod_map.get(tid, 0)
         n_promo= promo_map.get(tid, 0)
         en_man = bool(t.get("en_mantenimiento", 0))
-
+ 
         badge = (
             f'<div class="tcard-promo">🎁 {n_promo} promo{"s" if n_promo>1 else ""}</div>'
             if n_promo else ""
@@ -1922,7 +1923,7 @@ def index():
             if t.get("horario") else ""
         )
         ciudad_html = f' · {t.get("ciudad","")}' if t.get("ciudad") else ""
-
+ 
         cards += (
             f'<a href="/entrar/{tid}" class="tcard">'
             f'<div class="tcard-glow" style="background:radial-gradient(circle at 50% 0%,{pc}22 0%,transparent 70%)"></div>'
@@ -1940,9 +1941,9 @@ def index():
             f'<div class="tcard-arrow">→</div>'
             f'</a>'
         )
-
+ 
     n_tiendas = len(tiendas)
-
+ 
     # ── 12 panes + 8 carritos flotantes distribuidos por la pantalla ──
     # Posiciones: left%, top%, tamaño, duración, delay, rotación inicial
     PANES = [
@@ -1970,7 +1971,7 @@ def index():
         ( 38,   30,   240,  14,   4,     6),
         ( 12,    8,   220,   8,   1,    -3),
     ]
-
+ 
     def mk_pan_svg(idx):
         """SVG de hogaza artesanal con color."""
         # Variar el color dorado ligeramente entre instancias
@@ -2041,7 +2042,7 @@ def index():
             f'<circle cx="308" cy="275" r="2" fill="rgba(255,240,200,.4)"/>'
             f'</svg>'
         )
-
+ 
     def mk_carrito_svg(idx):
         """SVG de carrito de supermercado."""
         blues = ["#6366F1","#3B82F6","#8B5CF6","#06B6D4","#4F46E5"]
@@ -2118,7 +2119,7 @@ def index():
             f'<text x="197" y="247" text-anchor="middle" font-size="10" font-weight="800" fill="rgba(254,202,202,.9)" font-family="system-ui">OFERTA</text>'
             f'</svg>'
         )
-
+ 
     # Generar HTML de panes flotantes
     panes_html = ""
     for i, (lft, top, sz, dur, dly, rot) in enumerate(PANES):
@@ -2129,7 +2130,7 @@ def index():
             f'filter:drop-shadow(0 0 40px rgba(245,158,11,.45))">'
             f'{mk_pan_svg(i)}</div>'
         )
-
+ 
     carritos_html = ""
     for i, (lft, top, sz, dur, dly, rot) in enumerate(CARRITOS):
         carritos_html += (
@@ -2139,32 +2140,42 @@ def index():
             f'filter:drop-shadow(0 0 40px rgba(99,102,241,.45))">'
             f'{mk_carrito_svg(i)}</div>'
         )
-
+ 
     return (
         "<!DOCTYPE html><html lang='es'><head>"
         "<meta charset='UTF-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>GestorPro · Bienvenido</title>"
+        "<title>GestorPro · Sistema Multi-Tienda para Panaderías y Tiendas Colombia</title>"
+        "<meta name='description' content='GestorPro: sistema de gestión multi-tienda para panaderías y tiendas en Colombia. Pedidos online, inventario, domicilios, chatbot con IA, caja y reportes.'>"
+        "<meta name='keywords' content='gestor pro multi tienda, sistema panaderia colombia, software tienda online colombia, gestorpro, gestion pedidos colombia, sistema domicilios colombia'>"
+        "<meta name='robots' content='index, follow'>"
+        "<meta name='author' content='GestorPro Colombia'>"
+        "<meta property='og:type' content='website'>"
+        "<meta property='og:title' content='GestorPro — Sistema Multi-Tienda Colombia'>"
+        "<meta property='og:description' content='Maneja tu panadería o tienda online fácil. Pedidos, caja, inventario, domicilios y chatbot con IA.'>"
+        "<meta property='og:url' content='https://mi-app-a5ka.onrender.com'>"
+        "<meta property='og:locale' content='es_CO'>"
+        "<link rel='canonical' href='https://mi-app-a5ka.onrender.com'>"
         "<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap' rel='stylesheet'>"
         "<style>"
         "*{box-sizing:border-box;margin:0;padding:0}"
         "html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;"
         "background:#07070f;color:#fff;min-height:100vh;overflow-x:hidden}"
         "#cvs{position:fixed;inset:0;z-index:0;pointer-events:none}"
-
+ 
         # ── Fondo ilustraciones ───────────────────────────────────
         ".bg-art{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}"
-
+ 
         # 3 variantes de animación pan
         "@keyframes pfloat0{0%,100%{transform:rotate(-8deg) translateY(0)}50%{transform:rotate(-4deg) translateY(-22px)}}"
         "@keyframes pfloat1{0%,100%{transform:rotate(5deg) translateY(0)}50%{transform:rotate(2deg) translateY(-18px)}}"
         "@keyframes pfloat2{0%,100%{transform:rotate(-3deg) translateY(0)}50%{transform:rotate(-6deg) translateY(-26px)}}"
-
+ 
         # 3 variantes de animación carrito
         "@keyframes cfloat0{0%,100%{transform:rotate(5deg) translateY(0)}50%{transform:rotate(2deg) translateY(-20px)}}"
         "@keyframes cfloat1{0%,100%{transform:rotate(-6deg) translateY(0)}50%{transform:rotate(-3deg) translateY(18px)}}"
         "@keyframes cfloat2{0%,100%{transform:rotate(4deg) translateY(0)}50%{transform:rotate(7deg) translateY(-24px)}}"
-
+ 
         # ── Aurora ───────────────────────────────────────────────
         ".au{position:fixed;inset:0;z-index:2;pointer-events:none;overflow:hidden}"
         ".a1{position:absolute;width:900px;height:900px;border-radius:50%;"
@@ -2179,15 +2190,15 @@ def index():
         "@keyframes da{0%{transform:translate(0,0)}100%{transform:translate(-60px,40px)}}"
         "@keyframes db{0%{transform:translate(0,0)}100%{transform:translate(50px,-50px)}}"
         "@keyframes dc{0%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.2)}100%{transform:translate(-50%,-50%) scale(1)}}"
-
+ 
         ".gd{position:fixed;inset:0;z-index:3;pointer-events:none;"
         "background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);"
         "background-size:36px 36px}"
-
+ 
         # ── Contenido ─────────────────────────────────────────────
         ".page{position:relative;z-index:10;min-height:100vh;"
         "display:flex;flex-direction:column;align-items:center;padding:60px 20px 80px}"
-
+ 
         # ── Hero ──────────────────────────────────────────────────
         ".hero{text-align:center;margin-bottom:52px}"
         ".hero-logo{width:88px;height:88px;border-radius:26px;"
@@ -2212,11 +2223,11 @@ def index():
         ".hero-badge::before{content:'';width:7px;height:7px;border-radius:50%;"
         "background:#4ade80;box-shadow:0 0 8px #4ade80;animation:blink 2s ease infinite}"
         "@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}"
-
+ 
         # ── GRID — DESKTOP ────────────────────────────────────────
         ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));"
         "gap:18px;width:100%;max-width:1100px}"
-
+ 
         # ── CARD tienda ───────────────────────────────────────────
         ".tcard{position:relative;border-radius:20px;overflow:hidden;"
         "text-decoration:none;color:#fff;display:flex;flex-direction:column;"
@@ -2256,18 +2267,18 @@ def index():
         "display:flex;align-items:center;justify-content:center;font-size:.9rem;"
         "transition:all .2s}"
         ".tcard:hover .tcard-arrow{background:rgba(255,255,255,.14);transform:scale(1.1)}"
-
+ 
         # ── Footer ────────────────────────────────────────────────
         ".footer{margin-top:56px;text-align:center;"
         "font-size:.7rem;color:rgba(255,255,255,.15);font-weight:500}"
         ".footer a{color:rgba(255,255,255,.25);text-decoration:none;transition:.2s}"
         ".footer a:hover{color:rgba(255,255,255,.5)}"
-
+ 
         # ── Splash keyframes ──────────────────────────────────────
         "@keyframes sp-pop{from{opacity:0;transform:scale(.3) rotate(-12deg)}to{opacity:1;transform:scale(1) rotate(0)}}"
         "@keyframes sp-up{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}"
         "@keyframes sp-dt{0%,80%,100%{transform:scale(.6);opacity:.3}40%{transform:scale(1);opacity:1}}"
-
+ 
         # ══ MOBILE ═══════════════════════════════════════════════
         "@media(max-width:600px){"
         ".page{padding:32px 12px 60px}"
@@ -2299,22 +2310,22 @@ def index():
         ".grid{grid-template-columns:repeat(2,1fr);gap:14px}"
         ".page{padding:48px 16px 70px}"
         "}"
-
+ 
         "</style></head><body>"
-
+ 
         # Canvas estrellas
         "<canvas id='cvs'></canvas>"
-
+ 
         # Fondo artístico panes y carritos
         "<div class='bg-art'>"
         + panes_html
         + carritos_html +
         "</div>"
-
+ 
         # Aurora
         "<div class='au'><div class='a1'></div><div class='a2'></div><div class='a3'></div></div>"
         "<div class='gd'></div>"
-
+ 
         # Splash
         "<div id='splash' style='"
         "position:fixed;inset:0;z-index:9999;"
@@ -2359,7 +2370,7 @@ def index():
         "background:rgba(255,255,255,.3);animation:sp-dt .9s ease .4s infinite'></span>"
         "</div>"
         "</div>"
-
+ 
         # Página principal
         "<div class='page'>"
         "<div class='hero'>"
@@ -2369,15 +2380,15 @@ def index():
         "<div class='hero-badge'>"
         + str(n_tiendas) + " tienda" + ("s" if n_tiendas != 1 else "") + " disponible" + ("s" if n_tiendas != 1 else "")
         + "</div></div>"
-
+ 
         "<div class='grid'>"
         + cards +
         "</div>"
-
+ 
         "<div class='footer'>"
         "© 2026 GestorPro · <a href='/super'>⚙ Acceso sistema</a>"
         "</div></div>"
-
+ 
         # Scripts
         "<script>"
         # Splash
@@ -10585,11 +10596,57 @@ def chat_poll():
 
     return {"ok":True,"msgs":msgs,"cerrado":cerrado}
 
+# ================================================================
+#  SEO — Google Search Console + Sitemap + Robots
+# ================================================================
+@app.route("/google34a89e6231901370.html")
+def google_verify():
+    from flask import Response
+    return Response(
+        "google-site-verification: google34a89e6231901370.html",
+        mimetype="text/html"
+    )
+
+@app.route("/sitemap.xml")
+def sitemap():
+    from flask import Response
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        '<url>'
+        '<loc>https://mi-app-a5ka.onrender.com/</loc>'
+        '<changefreq>weekly</changefreq>'
+        '<priority>1.0</priority>'
+        '</url>'
+        '</urlset>'
+    )
+    return Response(xml, mimetype="application/xml")
+
+@app.route("/robots.txt")
+def robots():
+    from flask import Response
+    txt = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /admin\n"
+        "Disallow: /super\n"
+        "Disallow: /empleado\n"
+        "Disallow: /domi\n"
+        "Disallow: /prov\n"
+        "Disallow: /checkout\n"
+        "Disallow: /carrito\n"
+        "Disallow: /config\n"
+        "Disallow: /usuarios\n"
+        "Disallow: /caja\n"
+        "Disallow: /reportes\n"
+        "Sitemap: https://mi-app-a5ka.onrender.com/sitemap.xml\n"
+    )
+    return Response(txt, mimetype="text/plain")
+
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/")
-
 # ================================================================
 #  RUN
 # ================================================================
