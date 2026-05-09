@@ -1883,564 +1883,622 @@ def lbg(c="#4f46e5"):
 @app.route("/")
 def index():
     tiendas = db_query("SELECT * FROM tiendas WHERE activa=1 ORDER BY nombre", fetchall=True) or []
+
     if not tiendas:
         return ("<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
                 "<title>GestorPro</title></head><body style='background:#07070f;"
                 "display:flex;align-items:center;justify-content:center;"
-                "min-height:100vh;font-family:system-ui;color:#fff;flex-direction:column;gap:12px'>"
-                "<div style='font-size:4rem'>🏪</div>"
-                "<h1 style='font-weight:900'>GestorPro</h1>"
+                "min-height:100vh;font-family:system-ui;color:#fff;flex-direction:column;gap:16px'>"
+                "<div style='font-size:5rem'>🏪</div>"
+                "<h1 style='font-weight:900;font-size:2rem'>GestorPro</h1>"
                 "<p style='opacity:.4'>Sin tiendas activas.</p></body></html>")
- 
+
     ids     = tuple(t["id"] for t in tiendas)
     fmt_ids = ",".join(["%s"] * len(ids))
-    prod_map  = {r["tienda_id"]: r["c"] for r in (db_query(
-        f"SELECT tienda_id,COUNT(*) as c FROM productos WHERE tienda_id IN ({fmt_ids}) AND cantidad>0 GROUP BY tienda_id",
+
+    # ── Queries de estadísticas ──────────────────────────────────
+    prod_map = {r["tienda_id"]: r["c"] for r in (db_query(
+        f"SELECT tienda_id,COUNT(*) as c FROM productos WHERE tienda_id IN ({fmt_ids}) GROUP BY tienda_id",
         ids, fetchall=True) or [])}
-    promo_map = {r["tienda_id"]: r["c"] for r in (db_query(
-        f"SELECT tienda_id,COUNT(*) as c FROM promociones WHERE tienda_id IN ({fmt_ids}) AND activa=1 GROUP BY tienda_id",
+
+    ventas_map = {r["tienda_id"]: float(r["s"]) for r in (db_query(
+        f"SELECT tienda_id,COALESCE(SUM(subtotal),0) as s FROM pedidos "
+        f"WHERE tienda_id IN ({fmt_ids}) AND DATE(fecha)=CURDATE() "
+        f"AND estado NOT IN ('Cancelado','Devolucion') GROUP BY tienda_id",
         ids, fetchall=True) or [])}
- 
+
+    clientes_map = {r["tienda_id"]: r["c"] for r in (db_query(
+        f"SELECT tienda_id,COUNT(DISTINCT user) as c FROM pedidos "
+        f"WHERE tienda_id IN ({fmt_ids}) AND DATE(fecha)=CURDATE() GROUP BY tienda_id",
+        ids, fetchall=True) or [])}
+
+    # ── Imagen de fondo por tipo de tienda ───────────────────────
+    IMG = {
+        "panadería":    "https://images.unsplash.com/photo-1517433670267-08bbd4be890f?w=800&q=70",
+        "panaderia":    "https://images.unsplash.com/photo-1517433670267-08bbd4be890f?w=800&q=70",
+        "bakery":       "https://images.unsplash.com/photo-1517433670267-08bbd4be890f?w=800&q=70",
+        "abarrotes":    "https://images.unsplash.com/photo-1601598851547-4302969d0614?w=800&q=70",
+        "supermercado": "https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=800&q=70",
+        "minimarket":   "https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=800&q=70",
+        "tienda":       "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=800&q=70",
+        "ropa":         "https://images.unsplash.com/photo-1567401893414-76b7b1e5a7a5?w=800&q=70",
+        "restaurante":  "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&q=70",
+        "cafetería":    "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&q=70",
+        "farmacia":     "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=800&q=70",
+        "ferretería":   "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=70",
+        "default":      "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=800&q=70",
+    }
+
+    def get_img(tipo):
+        if not tipo: return IMG["default"]
+        t = tipo.lower().strip()
+        for k, v in IMG.items():
+            if k in t: return v
+        return IMG["default"]
+
+    def fmt_ventas(v):
+        if v >= 1_000_000: return f"${v/1_000_000:.2f}M"
+        if v >= 1_000:     return f"${v/1_000:.1f}K"
+        return f"${int(v):,}"
+
+    # ── Cards HTML ───────────────────────────────────────────────
     cards = ""
     for t in tiendas:
         tid    = t["id"]
-        pc     = t.get("color","#4f46e5")
-        n_prod = prod_map.get(tid, 0)
-        n_promo= promo_map.get(tid, 0)
+        pc     = t.get("color", "#4f46e5")
+        em     = t.get("emoji", "🏪")
+        tipo   = t.get("tipo", "Tienda")
+        ciu    = t.get("ciudad", "")
+        hor    = t.get("horario", "")
         en_man = bool(t.get("en_mantenimiento", 0))
- 
-        badge = (
-            f'<div class="tcard-promo">🎁 {n_promo} promo{"s" if n_promo>1 else ""}</div>'
-            if n_promo else ""
-        )
+        n_prod = prod_map.get(tid, 0)
+        ventas = ventas_map.get(tid, 0)
+        clts   = clientes_map.get(tid, 0)
+        img    = t.get("img_cover") or get_img(tipo)
+
         status_badge = (
-            '<div class="tcard-status mant">🔧 Mantenimiento</div>'
+            '<span class="idx-badge idx-mant">● Mantenimiento</span>'
             if en_man else
-            '<div class="tcard-status online">🟢 En línea</div>'
+            '<span class="idx-badge idx-online">● En línea</span>'
         )
-        horario_html = (
-            f'<p class="tcard-hor">⏰ {t.get("horario","")}</p>'
-            if t.get("horario") else ""
-        )
-        ciudad_html = f' · {t.get("ciudad","")}' if t.get("ciudad") else ""
- 
-        cards += (
-            f'<a href="/entrar/{tid}" class="tcard">'
-            f'<div class="tcard-glow" style="background:radial-gradient(circle at 50% 0%,{pc}22 0%,transparent 70%)"></div>'
-            f'<div class="tcard-body">'
-            f'<div class="tcard-emoji">{t.get("emoji","🏪")}</div>'
-            f'<div class="tcard-name">{t["nombre"]}</div>'
-            f'<div class="tcard-sub">{t.get("tipo","Tienda")}{ciudad_html}</div>'
-            f'{horario_html}'
-            f'<div class="tcard-meta">'
-            f'{status_badge}'
-            f'{badge}'
-            f'</div>'
-            f'<div class="tcard-stats"><span>📦 {n_prod}</span></div>'
-            f'</div>'
-            f'<div class="tcard-arrow">→</div>'
+
+        cards += f"""
+        <a href="/entrar/{tid}" class="idx-card">
+          <div class="idx-card-bg" style="background-image:url('{img}')"></div>
+          <div class="idx-card-ov" style="--pc:{pc}"></div>
+          <div class="idx-card-top">{status_badge}</div>
+          <div class="idx-card-icon" style="background:linear-gradient(135deg,{pc},{pc}99)">{em}</div>
+          <div class="idx-card-body">
+            <h3 class="idx-card-name">{t['nombre']}</h3>
+            <p class="idx-card-loc">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              {tipo}{(' • ' + ciu) if ciu else ''}
+            </p>
+            {(f'<p class="idx-card-hor"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> {hor}</p>') if hor else ''}
+            <div class="idx-card-stats">
+  <div class="idx-stat" style="width:100%">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+    </svg>
+
+    <span class="idx-stat-n">{n_prod:,}</span>
+    <span class="idx-stat-l">Productos</span>
+  </div>
+</div>
+          </div>
+        </a>"""
+
+    n_tiendas = len(tiendas)
+    sa_logged = bool(session.get("superadmin"))
+    sa_user   = session.get("user", "Admin")
+
+    # ── Navbar right ─────────────────────────────────────────────
+    if sa_logged:
+        nav_right = (
+            f'<a href="/super/panel" class="idx-nav-btn" style="gap:8px">'
+            f'<div class="idx-av">👑</div>'
+            f'<div><div style="font-size:.78rem;font-weight:700">Superadmin</div>'
+            f'<div style="font-size:.62rem;opacity:.5">{sa_user}</div></div>'
+            f'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>'
             f'</a>'
         )
- 
-    n_tiendas = len(tiendas)
- 
-    # ── 12 panes + 8 carritos flotantes distribuidos por la pantalla ──
-    # Posiciones: left%, top%, tamaño, duración, delay, rotación inicial
-    PANES = [
-        # left  top    size  dur  delay  rot
-        (  2,   15,   340,   9,   0,    -8),
-        ( 82,   10,   280,  11,   2,     6),
-        ( 42,   70,   320,   8,   1,    -4),
-        (  8,   78,   260,  12,   3,    -6),
-        ( 70,   50,   300,  10,  0.5,    5),
-        ( 25,   42,   200,  13,   4,    -3),
-        ( 90,   65,   220,   9,   2,     7),
-        ( 55,   20,   180,  14,   1,    -5),
-        ( 15,   55,   240,   8,   3,     4),
-        ( 75,   82,   260,  11,   0,    -7),
-        ( 48,   90,   200,  10,   2,     3),
-        ( 35,    5,   280,  12,   1,    -9),
-    ]
-    CARRITOS = [
-        (  5,   35,   300,  11,   0,     5),
-        ( 78,   25,   340,  10,   2,    -5),
-        ( 50,   55,   260,  13,   1,     4),
-        ( 22,   88,   280,   9,   3,    -6),
-        ( 62,   75,   220,  12,  0.5,    7),
-        ( 88,   82,   200,  10,   2,    -4),
-        ( 38,   30,   240,  14,   4,     6),
-        ( 12,    8,   220,   8,   1,    -3),
-    ]
- 
-    def mk_pan_svg(idx):
-        """SVG de hogaza artesanal con color."""
-        # Variar el color dorado ligeramente entre instancias
-        golds = ["#F59E0B","#D97706","#FBBF24","#EF9B07","#F4A429"]
-        dark  = ["#92400E","#78350F","#B45309","#7C3406","#8B3F0A"]
-        g = golds[idx % len(golds)]
-        d = dark[idx % len(dark)]
-        return (
-            f'<svg viewBox="0 0 420 360" xmlns="http://www.w3.org/2000/svg" fill="none">'
-            f'<defs>'
-            f'<radialGradient id="pb{idx}" cx="42%" cy="38%" r="58%">'
-            f'<stop offset="0%" stop-color="#FDE68A"/>'
-            f'<stop offset="35%" stop-color="{g}"/>'
-            f'<stop offset="70%" stop-color="{d}"/>'
-            f'<stop offset="100%" stop-color="#451A03"/>'
-            f'</radialGradient>'
-            f'<radialGradient id="pt{idx}" cx="35%" cy="30%" r="50%">'
-            f'<stop offset="0%" stop-color="#FEF3C7" stop-opacity="0.9"/>'
-            f'<stop offset="60%" stop-color="#FCD34D" stop-opacity="0.5"/>'
-            f'<stop offset="100%" stop-color="{d}" stop-opacity="0"/>'
-            f'</radialGradient>'
-            f'</defs>'
-            # Sombra
-            f'<ellipse cx="210" cy="345" rx="165" ry="14" fill="rgba(0,0,0,.3)"/>'
-            # Cuerpo
-            f'<ellipse cx="210" cy="195" rx="175" ry="132" fill="url(#pb{idx})"/>'
-            f'<ellipse cx="210" cy="185" rx="162" ry="118" fill="url(#pt{idx})"/>'
-            # Greñas
-            f'<path d="M142 152 Q178 122 210 136 Q242 122 278 152" stroke="{d}" stroke-width="3.5" stroke-linecap="round"/>'
-            f'<path d="M126 186 Q175 156 210 168 Q245 156 294 186" stroke="{d}" stroke-width="3" stroke-linecap="round"/>'
-            f'<path d="M132 222 Q175 202 210 212 Q245 202 288 222" stroke="{d}" stroke-width="2.5" stroke-linecap="round"/>'
-            # Cruz
-            f'<line x1="210" y1="98" x2="210" y2="164" stroke="{g}" stroke-width="3" stroke-linecap="round"/>'
-            f'<line x1="178" y1="130" x2="242" y2="130" stroke="{g}" stroke-width="3" stroke-linecap="round"/>'
-            # Brillo
-            f'<ellipse cx="168" cy="148" rx="50" ry="26" fill="rgba(255,230,150,.1)" transform="rotate(-22 168 148)"/>'
-            # Poros
-            f'<circle cx="162" cy="228" r="5" fill="{d}" opacity="0.45"/>'
-            f'<circle cx="198" cy="244" r="4.5" fill="{d}" opacity="0.4"/>'
-            f'<circle cx="234" cy="232" r="6" fill="{d}" opacity="0.45"/>'
-            f'<circle cx="266" cy="240" r="4.5" fill="{d}" opacity="0.4"/>'
-            f'<circle cx="292" cy="226" r="5" fill="{d}" opacity="0.45"/>'
-            f'<circle cx="178" cy="268" r="4" fill="{d}" opacity="0.35"/>'
-            f'<circle cx="218" cy="278" r="5" fill="{d}" opacity="0.4"/>'
-            f'<circle cx="254" cy="270" r="4" fill="{d}" opacity="0.35"/>'
-            # Espigas izq
-            f'<line x1="68" y1="305" x2="68" y2="55" stroke="{g}" stroke-width="2"/>'
-            f'<ellipse cx="68" cy="55" rx="6" ry="15" fill="{g}" transform="rotate(-8 68 55)"/>'
-            f'<ellipse cx="56" cy="76" rx="6" ry="14" fill="#FCD34D" transform="rotate(-30 56 76)"/>'
-            f'<ellipse cx="80" cy="76" rx="6" ry="14" fill="#FCD34D" transform="rotate(30 80 76)"/>'
-            f'<ellipse cx="58" cy="98" rx="5.5" ry="13" fill="#FDE68A" transform="rotate(-24 58 98)"/>'
-            f'<ellipse cx="78" cy="98" rx="5.5" ry="13" fill="#FDE68A" transform="rotate(24 78 98)"/>'
-            f'<ellipse cx="60" cy="118" rx="5" ry="12" fill="#FEF3C7" transform="rotate(-18 60 118)"/>'
-            f'<ellipse cx="76" cy="118" rx="5" ry="12" fill="#FEF3C7" transform="rotate(18 76 118)"/>'
-            # Espigas der
-            f'<line x1="352" y1="305" x2="352" y2="55" stroke="{g}" stroke-width="2"/>'
-            f'<ellipse cx="352" cy="55" rx="6" ry="15" fill="{g}" transform="rotate(8 352 55)"/>'
-            f'<ellipse cx="340" cy="76" rx="6" ry="14" fill="#FCD34D" transform="rotate(-30 340 76)"/>'
-            f'<ellipse cx="364" cy="76" rx="6" ry="14" fill="#FCD34D" transform="rotate(30 364 76)"/>'
-            f'<ellipse cx="342" cy="98" rx="5.5" ry="13" fill="#FDE68A" transform="rotate(-24 342 98)"/>'
-            f'<ellipse cx="362" cy="98" rx="5.5" ry="13" fill="#FDE68A" transform="rotate(24 362 98)"/>'
-            f'<ellipse cx="344" cy="118" rx="5" ry="12" fill="#FEF3C7" transform="rotate(-18 344 118)"/>'
-            f'<ellipse cx="360" cy="118" rx="5" ry="12" fill="#FEF3C7" transform="rotate(18 360 118)"/>'
-            # Harina
-            f'<circle cx="116" cy="118" r="2.5" fill="rgba(255,240,200,.5)"/>'
-            f'<circle cx="298" cy="105" r="2.5" fill="rgba(255,240,200,.5)"/>'
-            f'<circle cx="104" cy="262" r="2" fill="rgba(255,240,200,.4)"/>'
-            f'<circle cx="308" cy="275" r="2" fill="rgba(255,240,200,.4)"/>'
-            f'</svg>'
+    else:
+        nav_right = (
+            f'<a href="/super" class="idx-nav-btn">'
+            f'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>'
+            f' Acceso</a>'
         )
- 
-    def mk_carrito_svg(idx):
-        """SVG de carrito de supermercado."""
-        blues = ["#6366F1","#3B82F6","#8B5CF6","#06B6D4","#4F46E5"]
-        b = blues[idx % len(blues)]
-        return (
-            f'<svg viewBox="0 0 460 410" xmlns="http://www.w3.org/2000/svg" fill="none">'
-            f'<defs>'
-            f'<linearGradient id="ch{idx}" x1="0%" y1="0%" x2="100%" y2="0%">'
-            f'<stop offset="0%" stop-color="rgba(148,163,184,.6)"/>'
-            f'<stop offset="50%" stop-color="rgba(226,232,240,.85)"/>'
-            f'<stop offset="100%" stop-color="rgba(148,163,184,.6)"/>'
-            f'</linearGradient>'
-            f'<linearGradient id="cb{idx}" x1="0%" y1="0%" x2="100%" y2="100%">'
-            f'<stop offset="0%" stop-color="{b}" stop-opacity="0.22"/>'
-            f'<stop offset="100%" stop-color="{b}" stop-opacity="0.08"/>'
-            f'</linearGradient>'
-            f'<radialGradient id="cw{idx}" cx="38%" cy="32%" r="60%">'
-            f'<stop offset="0%" stop-color="rgba(203,213,225,.55)"/>'
-            f'<stop offset="100%" stop-color="rgba(51,65,85,.6)"/>'
-            f'</radialGradient>'
-            f'</defs>'
-            # Sombras ruedas
-            f'<ellipse cx="148" cy="398" rx="28" ry="8" fill="rgba(0,0,0,.3)"/>'
-            f'<ellipse cx="312" cy="398" rx="28" ry="8" fill="rgba(0,0,0,.3)"/>'
-            # Mango
-            f'<path d="M74 56 Q74 32 98 32 L362 32 Q386 32 386 56" stroke="url(#ch{idx})" stroke-width="13" stroke-linecap="round"/>'
-            f'<path d="M74 56 Q74 32 98 32 L362 32 Q386 32 386 56" stroke="rgba(255,255,255,.12)" stroke-width="5" stroke-linecap="round"/>'
-            # Cuerpo
-            f'<path d="M54 74 L72 316 Q74 336 92 336 L368 336 Q386 336 388 316 L406 74 Z" fill="url(#cb{idx})" stroke="{b}" stroke-width="1.5" stroke-opacity="0.6"/>'
-            # Alambres H
-            f'<line x1="59" y1="122" x2="401" y2="122" stroke="{b}" stroke-width="1.5" stroke-opacity="0.45"/>'
-            f'<line x1="62" y1="170" x2="398" y2="170" stroke="{b}" stroke-width="1.5" stroke-opacity="0.45"/>'
-            f'<line x1="65" y1="218" x2="395" y2="218" stroke="{b}" stroke-width="1.5" stroke-opacity="0.45"/>'
-            f'<line x1="68" y1="268" x2="392" y2="268" stroke="{b}" stroke-width="1.5" stroke-opacity="0.45"/>'
-            # Alambres V
-            f'<line x1="108" y1="74" x2="98" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
-            f'<line x1="154" y1="74" x2="146" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
-            f'<line x1="200" y1="74" x2="197" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
-            f'<line x1="230" y1="74" x2="230" y2="336" stroke="{b}" stroke-width="1.5" stroke-opacity="0.45"/>'
-            f'<line x1="260" y1="74" x2="263" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
-            f'<line x1="306" y1="74" x2="314" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
-            f'<line x1="352" y1="74" x2="362" y2="336" stroke="{b}" stroke-width="1" stroke-opacity="0.3"/>'
-            # Base
-            f'<path d="M72 316 L74 336 Q76 352 92 352 L368 352 Q384 352 386 336 L388 316" stroke="url(#ch{idx})" stroke-width="9" stroke-linecap="round"/>'
-            # Patas
-            f'<line x1="92" y1="352" x2="130" y2="380" stroke="rgba(148,163,184,.65)" stroke-width="9" stroke-linecap="round"/>'
-            f'<line x1="368" y1="352" x2="330" y2="380" stroke="rgba(148,163,184,.65)" stroke-width="9" stroke-linecap="round"/>'
-            # Rueda izq
-            f'<circle cx="130" cy="386" r="22" fill="url(#cw{idx})" stroke="rgba(148,163,184,.4)" stroke-width="2"/>'
-            f'<circle cx="130" cy="386" r="10" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="1.5"/>'
-            f'<circle cx="130" cy="386" r="3.5" fill="rgba(255,255,255,.25)"/>'
-            f'<line x1="130" y1="365" x2="130" y2="407" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>'
-            f'<line x1="109" y1="386" x2="151" y2="386" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>'
-            f'<line x1="116" y1="371" x2="144" y2="401" stroke="rgba(255,255,255,.1)" stroke-width="1"/>'
-            f'<line x1="144" y1="371" x2="116" y2="401" stroke="rgba(255,255,255,.1)" stroke-width="1"/>'
-            # Rueda der
-            f'<circle cx="330" cy="386" r="22" fill="url(#cw{idx})" stroke="rgba(148,163,184,.4)" stroke-width="2"/>'
-            f'<circle cx="330" cy="386" r="10" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="1.5"/>'
-            f'<circle cx="330" cy="386" r="3.5" fill="rgba(255,255,255,.25)"/>'
-            f'<line x1="330" y1="365" x2="330" y2="407" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>'
-            f'<line x1="309" y1="386" x2="351" y2="386" stroke="rgba(255,255,255,.18)" stroke-width="1.2"/>'
-            f'<line x1="316" y1="371" x2="344" y2="401" stroke="rgba(255,255,255,.1)" stroke-width="1"/>'
-            f'<line x1="344" y1="371" x2="316" y2="401" stroke="rgba(255,255,255,.1)" stroke-width="1"/>'
-            # Productos dentro
-            f'<rect x="132" y="96" width="58" height="50" rx="5" fill="{b}" opacity="0.45" stroke="{b}" stroke-width="1.5" stroke-opacity="0.7"/>'
-            f'<line x1="132" y1="116" x2="190" y2="116" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>'
-            f'<line x1="161" y1="96" x2="161" y2="146" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>'
-            f'<ellipse cx="248" cy="122" rx="34" ry="36" fill="rgba(245,158,11,.45)" stroke="rgba(253,230,138,.7)" stroke-width="1.5"/>'
-            f'<path d="M234 92 Q248 82 262 92" stroke="rgba(253,230,138,.8)" stroke-width="2" stroke-linecap="round"/>'
-            f'<rect x="302" y="90" width="26" height="58" rx="6" fill="rgba(34,197,94,.4)" stroke="rgba(110,231,183,.7)" stroke-width="1.5"/>'
-            f'<rect x="308" y="80" width="14" height="13" rx="3" fill="rgba(52,211,153,.5)" stroke="rgba(110,231,183,.7)" stroke-width="1"/>'
-            # Oferta
-            f'<rect x="164" y="230" width="66" height="24" rx="6" fill="rgba(239,68,68,.35)" stroke="rgba(252,165,165,.6)" stroke-width="1"/>'
-            f'<text x="197" y="247" text-anchor="middle" font-size="10" font-weight="800" fill="rgba(254,202,202,.9)" font-family="system-ui">OFERTA</text>'
-            f'</svg>'
-        )
- 
-    # Generar HTML de panes flotantes
-    panes_html = ""
-    for i, (lft, top, sz, dur, dly, rot) in enumerate(PANES):
-        panes_html += (
-            f'<div style="position:absolute;left:{lft}%;top:{top}%;width:{sz}px;'
-            f'opacity:.28;transform:rotate({rot}deg);pointer-events:none;'
-            f'animation:pfloat{i%3} {dur}s ease-in-out {dly}s infinite;'
-            f'filter:drop-shadow(0 0 40px rgba(245,158,11,.45))">'
-            f'{mk_pan_svg(i)}</div>'
-        )
- 
-    carritos_html = ""
-    for i, (lft, top, sz, dur, dly, rot) in enumerate(CARRITOS):
-        carritos_html += (
-            f'<div style="position:absolute;left:{lft}%;top:{top}%;width:{sz}px;'
-            f'opacity:.25;transform:rotate({rot}deg);pointer-events:none;'
-            f'animation:cfloat{i%3} {dur}s ease-in-out {dly}s infinite;'
-            f'filter:drop-shadow(0 0 40px rgba(99,102,241,.45))">'
-            f'{mk_carrito_svg(i)}</div>'
-        )
- 
-    return (
-        "<!DOCTYPE html><html lang='es'><head>"
-        "<meta charset='UTF-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>GestorPro · Sistema Multi-Tienda para Panaderías y Tiendas Colombia</title>"
-        "<meta name='description' content='GestorPro: sistema de gestión multi-tienda para panaderías y tiendas en Colombia. Pedidos online, inventario, domicilios, chatbot con IA, caja y reportes.'>"
-        "<meta name='keywords' content='gestor pro multi tienda, sistema panaderia colombia, software tienda online colombia, gestorpro, gestion pedidos colombia, sistema domicilios colombia'>"
-        "<meta name='robots' content='index, follow'>"
-        "<meta name='author' content='GestorPro Colombia'>"
-        "<meta property='og:type' content='website'>"
-        "<meta property='og:title' content='GestorPro — Sistema Multi-Tienda Colombia'>"
-        "<meta property='og:description' content='Maneja tu panadería o tienda online fácil. Pedidos, caja, inventario, domicilios y chatbot con IA.'>"
-        "<meta property='og:url' content='https://mi-app-a5ka.onrender.com'>"
-        "<meta property='og:locale' content='es_CO'>"
-        "<link rel='canonical' href='https://mi-app-a5ka.onrender.com'>"
-        "<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800;900&display=swap' rel='stylesheet'>"
-        "<style>"
-        "*{box-sizing:border-box;margin:0;padding:0}"
-        "html,body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;"
-        "background:#07070f;color:#fff;min-height:100vh;overflow-x:hidden}"
-        "#cvs{position:fixed;inset:0;z-index:0;pointer-events:none}"
- 
-        # ── Fondo ilustraciones ───────────────────────────────────
-        ".bg-art{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}"
- 
-        # 3 variantes de animación pan
-        "@keyframes pfloat0{0%,100%{transform:rotate(-8deg) translateY(0)}50%{transform:rotate(-4deg) translateY(-22px)}}"
-        "@keyframes pfloat1{0%,100%{transform:rotate(5deg) translateY(0)}50%{transform:rotate(2deg) translateY(-18px)}}"
-        "@keyframes pfloat2{0%,100%{transform:rotate(-3deg) translateY(0)}50%{transform:rotate(-6deg) translateY(-26px)}}"
- 
-        # 3 variantes de animación carrito
-        "@keyframes cfloat0{0%,100%{transform:rotate(5deg) translateY(0)}50%{transform:rotate(2deg) translateY(-20px)}}"
-        "@keyframes cfloat1{0%,100%{transform:rotate(-6deg) translateY(0)}50%{transform:rotate(-3deg) translateY(18px)}}"
-        "@keyframes cfloat2{0%,100%{transform:rotate(4deg) translateY(0)}50%{transform:rotate(7deg) translateY(-24px)}}"
- 
-        # ── Aurora ───────────────────────────────────────────────
-        ".au{position:fixed;inset:0;z-index:2;pointer-events:none;overflow:hidden}"
-        ".a1{position:absolute;width:900px;height:900px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(79,70,229,.18) 0%,transparent 70%);"
-        "top:-300px;right:-200px;animation:da 18s ease-in-out infinite alternate}"
-        ".a2{position:absolute;width:700px;height:700px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(16,185,129,.1) 0%,transparent 70%);"
-        "bottom:-200px;left:-150px;animation:db 22s ease-in-out infinite alternate}"
-        ".a3{position:absolute;width:500px;height:500px;border-radius:50%;"
-        "background:radial-gradient(circle,rgba(245,158,11,.07) 0%,transparent 70%);"
-        "top:45%;left:45%;transform:translate(-50%,-50%);animation:dc 14s ease-in-out infinite}"
-        "@keyframes da{0%{transform:translate(0,0)}100%{transform:translate(-60px,40px)}}"
-        "@keyframes db{0%{transform:translate(0,0)}100%{transform:translate(50px,-50px)}}"
-        "@keyframes dc{0%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.2)}100%{transform:translate(-50%,-50%) scale(1)}}"
- 
-        ".gd{position:fixed;inset:0;z-index:3;pointer-events:none;"
-        "background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);"
-        "background-size:36px 36px}"
- 
-        # ── Contenido ─────────────────────────────────────────────
-        ".page{position:relative;z-index:10;min-height:100vh;"
-        "display:flex;flex-direction:column;align-items:center;padding:60px 20px 80px}"
- 
-        # ── Hero ──────────────────────────────────────────────────
-        ".hero{text-align:center;margin-bottom:52px}"
-        ".hero-logo{width:88px;height:88px;border-radius:26px;"
-        "background:linear-gradient(135deg,#3730a3,#4f46e5,#6366f1);"
-        "display:flex;align-items:center;justify-content:center;font-size:2.5rem;"
-        "margin:0 auto 22px;"
-        "box-shadow:0 0 0 12px rgba(79,70,229,.1),0 0 0 24px rgba(79,70,229,.05),"
-        "0 20px 60px rgba(79,70,229,.5);animation:glow 4s ease infinite}"
-        "@keyframes glow{"
-        "0%,100%{box-shadow:0 0 0 12px rgba(79,70,229,.1),0 0 0 24px rgba(79,70,229,.05),0 20px 60px rgba(79,70,229,.5)}"
-        "50%{box-shadow:0 0 0 16px rgba(79,70,229,.15),0 0 0 32px rgba(79,70,229,.08),0 20px 80px rgba(79,70,229,.7)}}"
-        ".hero h1{font-size:clamp(2.4rem,6vw,3.8rem);font-weight:900;letter-spacing:-.04em;"
-        "background:linear-gradient(135deg,#fff 30%,#818cf8 65%,#c4b5fd);"
-        "-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;"
-        "margin-bottom:12px}"
-        ".hero p{font-size:clamp(.88rem,2vw,1rem);color:rgba(255,255,255,.4);"
-        "font-weight:500;margin-bottom:22px}"
-        ".hero-badge{display:inline-flex;align-items:center;gap:7px;"
-        "padding:7px 18px;border-radius:99px;"
-        "background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.28);"
-        "font-size:.78rem;font-weight:700;color:#a5b4fc}"
-        ".hero-badge::before{content:'';width:7px;height:7px;border-radius:50%;"
-        "background:#4ade80;box-shadow:0 0 8px #4ade80;animation:blink 2s ease infinite}"
-        "@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}"
- 
-        # ── GRID — DESKTOP ────────────────────────────────────────
-        ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));"
-        "gap:18px;width:100%;max-width:1100px}"
- 
-        # ── CARD tienda ───────────────────────────────────────────
-        ".tcard{position:relative;border-radius:20px;overflow:hidden;"
-        "text-decoration:none;color:#fff;display:flex;flex-direction:column;"
-        "background:rgba(255,255,255,.042);"
-        "border:1px solid rgba(255,255,255,.09);"
-        "backdrop-filter:blur(16px);"
-        "transition:transform .28s cubic-bezier(.22,1,.36,1),box-shadow .28s,border-color .28s;"
-        "cursor:pointer;min-height:200px}"
-        ".tcard:hover{transform:translateY(-7px) scale(1.012);"
-        "box-shadow:0 28px 64px rgba(0,0,0,.5),0 0 0 1.5px rgba(255,255,255,.16);"
-        "border-color:rgba(255,255,255,.16)}"
-        ".tcard-glow{position:absolute;inset:0;opacity:0;transition:opacity .3s;pointer-events:none}"
-        ".tcard:hover .tcard-glow{opacity:1}"
-        ".tcard-body{position:relative;z-index:1;padding:22px 20px 52px;flex:1;"
-        "display:flex;flex-direction:column;gap:6px}"
-        ".tcard-emoji{font-size:2.6rem;filter:drop-shadow(0 4px 16px rgba(0,0,0,.3));"
-        "margin-bottom:4px;display:inline-block;transition:transform .28s}"
-        ".tcard:hover .tcard-emoji{transform:scale(1.12) rotate(-5deg)}"
-        ".tcard-name{font-size:1.05rem;font-weight:900;letter-spacing:-.02em;line-height:1.2}"
-        ".tcard-sub{font-size:.73rem;color:rgba(255,255,255,.42);font-weight:500}"
-        ".tcard-hor{font-size:.68rem;color:rgba(255,255,255,.28);margin:0}"
-        ".tcard-meta{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}"
-        ".tcard-status{display:inline-flex;align-items:center;gap:5px;"
-        "font-size:.66rem;font-weight:700;padding:3px 10px;border-radius:99px}"
-        ".tcard-status.online{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);color:#4ade80}"
-        ".tcard-status.online::before{content:'';width:5px;height:5px;border-radius:50%;"
-        "background:#22c55e;box-shadow:0 0 6px #22c55e}"
-        ".tcard-status.mant{background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);color:#fbbf24}"
-        ".tcard-promo{display:inline-flex;align-items:center;gap:4px;"
-        "font-size:.63rem;font-weight:800;padding:3px 10px;border-radius:99px;"
-        "background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5}"
-        ".tcard-stats{display:flex;align-items:center;gap:8px;margin-top:auto;"
-        "font-size:.7rem;color:rgba(255,255,255,.28);font-weight:600}"
-        ".tcard-arrow{position:absolute;bottom:16px;right:16px;z-index:1;"
-        "width:32px;height:32px;border-radius:50%;"
-        "background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);"
-        "display:flex;align-items:center;justify-content:center;font-size:.9rem;"
-        "transition:all .2s}"
-        ".tcard:hover .tcard-arrow{background:rgba(255,255,255,.14);transform:scale(1.1)}"
- 
-        # ── Footer ────────────────────────────────────────────────
-        ".footer{margin-top:56px;text-align:center;"
-        "font-size:.7rem;color:rgba(255,255,255,.15);font-weight:500}"
-        ".footer a{color:rgba(255,255,255,.25);text-decoration:none;transition:.2s}"
-        ".footer a:hover{color:rgba(255,255,255,.5)}"
- 
-        # ── Splash keyframes ──────────────────────────────────────
-        "@keyframes sp-pop{from{opacity:0;transform:scale(.3) rotate(-12deg)}to{opacity:1;transform:scale(1) rotate(0)}}"
-        "@keyframes sp-up{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}"
-        "@keyframes sp-dt{0%,80%,100%{transform:scale(.6);opacity:.3}40%{transform:scale(1);opacity:1}}"
- 
-        # ══ MOBILE ═══════════════════════════════════════════════
-        "@media(max-width:600px){"
-        ".page{padding:32px 12px 60px}"
-        ".hero{margin-bottom:28px}"
-        ".hero-logo{width:64px;height:64px;border-radius:18px;font-size:1.8rem;margin-bottom:14px}"
-        ".hero h1{font-size:2rem}"
-        ".hero p{font-size:.82rem;margin-bottom:16px}"
-        ".hero-badge{font-size:.7rem;padding:5px 14px}"
-        # Grid 1 col en móvil muy pequeño, 2 col en tablet
-        ".grid{grid-template-columns:1fr 1fr;gap:10px}"
-        ".tcard{border-radius:16px;min-height:0}"
-        ".tcard-body{padding:14px 13px 40px;gap:4px}"
-        ".tcard-emoji{font-size:2rem;margin-bottom:2px}"
-        ".tcard-name{font-size:.88rem;letter-spacing:-.01em}"
-        ".tcard-sub{font-size:.65rem}"
-        ".tcard-hor{font-size:.6rem}"
-        ".tcard-status{font-size:.58rem;padding:2px 8px}"
-        ".tcard-promo{font-size:.57rem;padding:2px 8px}"
-        ".tcard-stats{font-size:.62rem}"
-        ".tcard-arrow{width:26px;height:26px;font-size:.75rem;bottom:10px;right:10px}"
-        "}"
-        "@media(max-width:380px){"
-        ".grid{grid-template-columns:1fr;gap:9px}"
-        ".tcard-body{padding:16px 14px 46px}"
-        ".tcard-emoji{font-size:2.2rem}"
-        ".tcard-name{font-size:.92rem}"
-        "}"
-        "@media(min-width:601px) and (max-width:900px){"
-        ".grid{grid-template-columns:repeat(2,1fr);gap:14px}"
-        ".page{padding:48px 16px 70px}"
-        "}"
- 
-        "</style></head><body>"
- 
-        # Canvas estrellas
-        "<canvas id='cvs'></canvas>"
- 
-        # Fondo artístico panes y carritos
-        "<div class='bg-art'>"
-        + panes_html
-        + carritos_html +
-        "</div>"
- 
-        # Aurora
-        "<div class='au'><div class='a1'></div><div class='a2'></div><div class='a3'></div></div>"
-        "<div class='gd'></div>"
- 
-        # Splash
-        "<div id='splash' style='"
-        "position:fixed;inset:0;z-index:9999;"
-        "background:#07070f;"
-        "display:flex;flex-direction:column;"
-        "align-items:center;justify-content:center;"
-        "transition:opacity 1s ease,visibility 1s ease'>"
-        "<div style='"
-        "width:88px;height:88px;border-radius:24px;"
-        "background:linear-gradient(135deg,#3730a3,#4f46e5,#6366f1);"
-        "display:flex;align-items:center;justify-content:center;"
-        "font-size:2.6rem;margin-bottom:24px;"
-        "box-shadow:0 0 0 12px rgba(79,70,229,.1),"
-        "0 0 0 24px rgba(79,70,229,.05),"
-        "0 20px 60px rgba(79,70,229,.55);"
-        "animation:sp-pop .7s cubic-bezier(.34,1.56,.64,1) both'>🏪</div>"
-        "<h1 style='"
-        "font-size:clamp(1.8rem,5vw,3rem);font-weight:900;"
-        "letter-spacing:-.04em;text-align:center;margin-bottom:8px;"
-        "background:linear-gradient(135deg,#fff 30%,#818cf8 65%,#c4b5fd);"
-        "-webkit-background-clip:text;-webkit-text-fill-color:transparent;"
-        "background-clip:text;"
-        "opacity:0;animation:sp-up .7s ease .35s both'>GestorPro</h1>"
-        "<p style='font-size:.9rem;color:rgba(255,255,255,.38);font-weight:500;"
-        "text-align:center;margin-bottom:32px;"
-        "opacity:0;animation:sp-up .7s ease .55s both'>"
-        "Bienvenido · Sistema Multi-Tienda Colombia</p>"
-        "<div style='width:180px;height:3px;background:rgba(255,255,255,.08);"
-        "border-radius:99px;overflow:hidden;"
-        "opacity:0;animation:sp-up .5s ease .7s both'>"
-        "<div id='sp-bar' style='height:100%;width:0;border-radius:99px;"
-        "background:linear-gradient(90deg,#4338ca,#818cf8,#c4b5fd);"
-        "transition:width 1.4s cubic-bezier(.4,0,.2,1)'></div>"
-        "</div>"
-        "<div style='display:flex;gap:6px;justify-content:center;margin-top:18px;"
-        "opacity:0;animation:sp-up .5s ease .75s both'>"
-        "<span style='width:6px;height:6px;border-radius:50%;"
-        "background:rgba(255,255,255,.3);animation:sp-dt .9s ease infinite'></span>"
-        "<span style='width:6px;height:6px;border-radius:50%;"
-        "background:rgba(255,255,255,.3);animation:sp-dt .9s ease .2s infinite'></span>"
-        "<span style='width:6px;height:6px;border-radius:50%;"
-        "background:rgba(255,255,255,.3);animation:sp-dt .9s ease .4s infinite'></span>"
-        "</div>"
-        "</div>"
- 
-        # Página principal
-        "<div class='page'>"
-        "<div class='hero'>"
-        "<div class='hero-logo'>🏪</div>"
-        "<h1>GestorPro</h1>"
-        "<p>Sistema de Gestión Multi-Tienda · Colombia</p>"
-        "<div class='hero-badge'>"
-        + str(n_tiendas) + " tienda" + ("s" if n_tiendas != 1 else "") + " disponible" + ("s" if n_tiendas != 1 else "")
-        + "</div></div>"
- 
-        "<div class='grid'>"
-        + cards +
-        "</div>"
- 
-        "<div class='footer'>"
-        "© 2026 GestorPro · <a href='/super'>⚙ Acceso sistema</a>"
-        "</div></div>"
- 
-        # Scripts
-        "<script>"
-        # Splash
-        "setTimeout(function(){document.getElementById('sp-bar').style.width='100%';},200);"
-        "setTimeout(function(){"
-        "  var sp=document.getElementById('splash');"
-        "  if(sp){sp.style.opacity='0';sp.style.visibility='hidden';"
-        "  sp.style.pointerEvents='none';}"
-        "},2200);"
-        # Estrellas canvas
-        "(function(){"
-        "var c=document.getElementById('cvs');"
-        "var ctx=c.getContext('2d');"
-        "var W,H,stars=[];"
-        "function resize(){W=c.width=window.innerWidth;H=c.height=window.innerHeight;mk();}"
-        "function mk(){"
-        "stars=[];"
-        "var n=Math.floor(W*H/2200);"
-        "var cols=['#fff','#c4b5fd','#93c5fd','#6ee7b7','#fde68a','#fb923c'];"
-        "for(var i=0;i<n;i++)stars.push({"
-        "  x:Math.random()*W,y:Math.random()*H,"
-        "  r:Math.random()*1.4+.2,"
-        "  a:Math.random()*.8+.1,"
-        "  spd:Math.random()*.012+.003,"
-        "  phase:Math.random()*Math.PI*2,"
-        "  col:cols[Math.floor(Math.random()*cols.length)]"
-        "});}"
-        "function draw(){"
-        "ctx.clearRect(0,0,W,H);"
-        "var now=Date.now()/1000;"
-        "stars.forEach(function(s){"
-        "  var alp=s.a*(.5+.5*Math.sin(now*s.spd*60+s.phase));"
-        "  ctx.globalAlpha=alp;"
-        "  ctx.fillStyle=s.col;"
-        "  ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();"
-        "  if(s.r>1.1){"
-        "    ctx.save();ctx.globalAlpha=alp*.35;"
-        "    ctx.strokeStyle=s.col;ctx.lineWidth=.5;"
-        "    ctx.beginPath();"
-        "    ctx.moveTo(s.x-s.r*3,s.y);ctx.lineTo(s.x+s.r*3,s.y);"
-        "    ctx.moveTo(s.x,s.y-s.r*3);ctx.lineTo(s.x,s.y+s.r*3);"
-        "    ctx.stroke();ctx.restore();"
-        "  }"
-        "});"
-        "ctx.globalAlpha=1;"
-        "requestAnimationFrame(draw);}"
-        "resize();draw();"
-        "window.addEventListener('resize',resize);"
-        "})();"
-        "</script>"
-        "</body></html>"
-    )
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GestorPro · Sistema Multi-Tienda Colombia</title>
+<meta name="description" content="GestorPro — Sistema multi-tienda para panaderías y tiendas en Colombia">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+html,body{{
+  font-family:'Plus Jakarta Sans',system-ui,sans-serif;
+  background:#050714;color:#fff;
+  min-height:100vh;overflow-x:hidden;
+}}
+
+/* ── Stars canvas ── */
+#idx-cvs{{position:fixed;inset:0;z-index:0;pointer-events:none}}
+
+/* ── Aurora ── */
+.idx-au{{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}}
+.idx-a1{{
+  position:absolute;width:800px;height:800px;border-radius:50%;
+  background:radial-gradient(circle,rgba(79,70,229,.22) 0%,transparent 70%);
+  top:-300px;left:50%;transform:translateX(-50%);
+  animation:idx-da 20s ease-in-out infinite alternate;
+}}
+.idx-a2{{
+  position:absolute;width:600px;height:600px;border-radius:50%;
+  background:radial-gradient(circle,rgba(16,185,129,.1) 0%,transparent 70%);
+  bottom:-200px;left:-100px;
+  animation:idx-db 25s ease-in-out infinite alternate;
+}}
+.idx-a3{{
+  position:absolute;width:500px;height:500px;border-radius:50%;
+  background:radial-gradient(circle,rgba(139,92,246,.12) 0%,transparent 70%);
+  bottom:-150px;right:-100px;
+  animation:idx-dc 18s ease-in-out infinite alternate;
+}}
+@keyframes idx-da{{0%{{transform:translateX(-50%) scale(1)}}100%{{transform:translateX(-50%) scale(1.2) translateY(-40px)}}}}
+@keyframes idx-db{{0%{{transform:translate(0,0)}}100%{{transform:translate(60px,-50px)}}}}
+@keyframes idx-dc{{0%{{transform:translate(0,0)}}100%{{transform:translate(-50px,40px)}}}}
+
+/* ── Grid puntitos ── */
+.idx-gd{{
+  position:fixed;inset:0;z-index:2;pointer-events:none;
+  background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);
+  background-size:40px 40px;
+}}
+
+/* ── Floating icons ── */
+.idx-floats{{position:fixed;inset:0;z-index:3;pointer-events:none}}
+.idx-fi{{
+  position:absolute;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  animation:idx-float linear infinite;
+}}
+.idx-fi svg{{opacity:.7}}
+@keyframes idx-float{{
+  0%{{transform:translateY(0) rotate(0deg)}}
+  50%{{transform:translateY(-20px) rotate(5deg)}}
+  100%{{transform:translateY(0) rotate(0deg)}}
+}}
+
+/* ── Page wrapper ── */
+.idx-page{{
+  position:relative;z-index:10;min-height:100vh;
+  display:flex;flex-direction:column;
+}}
+
+/* ── NAVBAR ── */
+.idx-nav{{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 32px;
+  background:rgba(5,7,20,.7);
+  backdrop-filter:blur(20px);
+  border-bottom:1px solid rgba(255,255,255,.07);
+  position:sticky;top:0;z-index:50;
+}}
+.idx-logo{{
+  display:flex;align-items:center;gap:10px;text-decoration:none;color:#fff;
+}}
+.idx-logo-icon{{
+  width:38px;height:38px;border-radius:10px;
+  background:linear-gradient(135deg,#4f46e5,#7c3aed);
+  display:flex;align-items:center;justify-content:center;font-size:1.1rem;
+  box-shadow:0 0 0 3px rgba(79,70,229,.25);
+}}
+.idx-logo-text{{font-size:1.15rem;font-weight:900;letter-spacing:-.03em}}
+.idx-logo-text span{{color:#818cf8}}
+.idx-nav-r{{display:flex;align-items:center;gap:10px}}
+.idx-nav-btn{{
+  display:inline-flex;align-items:center;gap:7px;
+  background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);
+  color:rgba(255,255,255,.8);border-radius:10px;padding:7px 14px;
+  font-size:.78rem;font-weight:600;text-decoration:none;font-family:inherit;
+  cursor:pointer;transition:all .15s;
+}}
+.idx-nav-btn:hover{{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.2)}}
+.idx-av{{
+  width:30px;height:30px;border-radius:8px;
+  background:linear-gradient(135deg,#4f46e5,#7c3aed);
+  display:flex;align-items:center;justify-content:center;font-size:.85rem;
+}}
+.idx-theme-btn{{
+  width:38px;height:38px;border-radius:9px;border:1px solid rgba(255,255,255,.1);
+  background:rgba(255,255,255,.07);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:.95rem;transition:.15s;
+}}
+.idx-theme-btn:hover{{background:rgba(255,255,255,.14)}}
+
+/* ── HERO ── */
+.idx-hero{{
+  text-align:center;padding:64px 20px 48px;
+}}
+.idx-hero-icon{{
+  width:90px;height:90px;border-radius:24px;
+  background:linear-gradient(135deg,#3730a3,#4f46e5,#6366f1);
+  display:flex;align-items:center;justify-content:center;
+  font-size:2.6rem;margin:0 auto 28px;
+  box-shadow:0 0 0 10px rgba(79,70,229,.12),0 0 0 22px rgba(79,70,229,.06),
+  0 24px 60px rgba(79,70,229,.5);
+  animation:idx-pulse 4s ease infinite;
+}}
+@keyframes idx-pulse{{
+  0%,100%{{box-shadow:0 0 0 10px rgba(79,70,229,.12),0 0 0 22px rgba(79,70,229,.06),0 24px 60px rgba(79,70,229,.5)}}
+  50%{{box-shadow:0 0 0 14px rgba(79,70,229,.18),0 0 0 30px rgba(79,70,229,.09),0 24px 80px rgba(79,70,229,.7)}}
+}}
+.idx-hero h1{{
+  font-size:clamp(3rem,7vw,5.2rem);font-weight:900;
+  letter-spacing:-.04em;line-height:.95;margin-bottom:14px;
+  background:linear-gradient(145deg,#fff 0%,#c7d2fe 45%,#818cf8 70%,#a78bfa 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}}
+.idx-hero-sub{{
+  font-size:clamp(.9rem,2vw,1.05rem);color:rgba(255,255,255,.45);
+  font-weight:500;margin-bottom:24px;
+}}
+.idx-hero-badge{{
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+  border-radius:99px;padding:8px 20px;
+  font-size:.82rem;font-weight:700;color:rgba(255,255,255,.8);
+  backdrop-filter:blur(10px);
+}}
+.idx-hero-dot{{
+  width:8px;height:8px;border-radius:50%;
+  background:#22c55e;box-shadow:0 0 8px #22c55e;
+  animation:idx-blink 2s ease infinite;flex-shrink:0;
+}}
+@keyframes idx-blink{{0%,100%{{opacity:1}}50%{{opacity:.3}}}}
+
+/* ── SECTION "Mis Tiendas" ── */
+.idx-sec{{padding:0 24px 48px;max-width:1300px;margin:0 auto;width:100%}}
+.idx-sec-header{{
+  text-align:center;margin-bottom:28px;
+  display:flex;align-items:center;justify-content:center;gap:14px;
+}}
+.idx-sec-line{{flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.15))}}
+.idx-sec-line.r{{background:linear-gradient(90deg,rgba(255,255,255,.15),transparent)}}
+.idx-sec-header h2{{
+  font-size:1.4rem;font-weight:800;letter-spacing:-.02em;
+  white-space:nowrap;
+}}
+.idx-sec-header p{{
+  color:rgba(255,255,255,.4);font-size:.82rem;margin-top:3px;
+}}
+
+/* ── CARDS GRID ── */
+.idx-grid{{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
+  gap:20px;
+}}
+
+/* ── STORE CARD ── */
+.idx-card{{
+  position:relative;border-radius:18px;overflow:hidden;
+  text-decoration:none;color:#fff;display:block;
+  background:#0d1128;
+  border:1px solid rgba(255,255,255,.08);
+  transition:transform .3s cubic-bezier(.22,1,.36,1),
+             box-shadow .3s,border-color .3s;
+  min-height:300px;
+}}
+.idx-card:hover{{
+  transform:translateY(-8px) scale(1.01);
+  box-shadow:0 32px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.15);
+  border-color:rgba(255,255,255,.15);
+}}
+.idx-card-bg{{
+  position:absolute;inset:0;
+  background-size:cover;background-position:center;
+  opacity:.35;transition:opacity .3s;
+}}
+.idx-card:hover .idx-card-bg{{opacity:.45}}
+.idx-card-ov{{
+  position:absolute;inset:0;
+  background:linear-gradient(
+    180deg,
+    rgba(5,7,20,.2) 0%,
+    rgba(5,7,20,.5) 40%,
+    rgba(5,7,20,.92) 100%
+  );
+}}
+.idx-card:hover .idx-card-ov{{
+  background:linear-gradient(
+    180deg,
+    var(--pc,#4f46e5)11 0%,
+    rgba(5,7,20,.5) 40%,
+    rgba(5,7,20,.95) 100%
+  );
+}}
+.idx-card-top{{
+  position:absolute;top:14px;left:14px;z-index:2;
+}}
+.idx-badge{{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:.7rem;font-weight:700;padding:4px 11px;border-radius:99px;
+  backdrop-filter:blur(8px);
+}}
+.idx-online{{background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#4ade80}}
+.idx-mant{{background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.4);color:#fbbf24}}
+.idx-card-icon{{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%) translateY(-30px);
+  z-index:2;
+  width:62px;height:62px;border-radius:18px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.8rem;
+  box-shadow:0 8px 32px rgba(0,0,0,.4);
+  transition:transform .3s;
+}}
+.idx-card:hover .idx-card-icon{{transform:translate(-50%,-50%) translateY(-34px) scale(1.08)}}
+.idx-card-body{{
+  position:absolute;bottom:0;left:0;right:0;z-index:2;
+  padding:18px 18px 16px;
+}}
+.idx-card-name{{
+  font-size:1.05rem;font-weight:800;letter-spacing:-.02em;
+  line-height:1.2;margin-bottom:5px;
+}}
+.idx-card-loc,.idx-card-hor{{
+  display:flex;align-items:center;gap:5px;
+  font-size:.72rem;color:rgba(255,255,255,.5);font-weight:500;
+  margin-bottom:2px;
+}}
+.idx-card-stats{{
+  display:flex;align-items:center;gap:0;
+  margin-top:13px;padding-top:12px;
+  border-top:1px solid rgba(255,255,255,.1);
+}}
+.idx-stat{{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  color:rgba(255,255,255,.5);
+}}
+.idx-stat svg{{color:rgba(255,255,255,.35)}}
+.idx-stat-n{{
+  font-size:.95rem;font-weight:800;color:#fff;line-height:1;
+}}
+.idx-stat-l{{font-size:.6rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em}}
+.idx-stat-div{{
+  width:1px;height:32px;
+  background:rgba(255,255,255,.1);flex-shrink:0;
+}}
+
+/* ── FEATURES ── */
+.idx-feats{{
+  max-width:1000px;
+  margin:0 auto;
+  width:100%;
+  padding:0 24px 60px;
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:14px;
+}}
+.idx-feat{{
+  background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:14px;padding:16px 18px;
+  display:flex;align-items:flex-start;gap:13px;
+}}
+.idx-feat-icon{{
+  width:40px;height:40px;border-radius:11px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:1.1rem;
+}}
+.idx-feat-title{{font-size:.82rem;font-weight:700;margin-bottom:3px}}
+.idx-feat-desc{{font-size:.72rem;color:rgba(255,255,255,.4);line-height:1.5}}
+
+/* ── FOOTER ── */
+.idx-foot{{
+  text-align:center;padding:16px;
+  font-size:.68rem;color:rgba(255,255,255,.15);
+  border-top:1px solid rgba(255,255,255,.05);
+}}
+
+/* ── SPLASH ── */
+#idx-splash{{
+  position:fixed;inset:0;z-index:9999;background:#050714;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  transition:opacity 1.1s ease;
+}}
+#idx-bar-w{{width:200px;height:3px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;margin-top:24px}}
+#idx-bar{{height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#4338ca,#818cf8,#c4b5fd);transition:width 1.5s cubic-bezier(.4,0,.2,1)}}
+@keyframes idx-sppop{{from{{opacity:0;transform:scale(.4) rotate(-15deg)}}to{{opacity:1;transform:scale(1) rotate(0)}}}}
+@keyframes idx-spup{{from{{opacity:0;transform:translateY(16px)}}to{{opacity:1;transform:translateY(0)}}}}
+
+/* ── MOBILE ── */
+@media(max-width:600px){{
+  .idx-nav{{padding:12px 14px}}
+  .idx-hero{{padding:40px 14px 32px}}
+  .idx-hero h1{{font-size:2.6rem}}
+  .idx-grid{{grid-template-columns:1fr 1fr;gap:12px}}
+  .idx-card{{min-height:240px}}
+  .idx-card-icon{{width:48px;height:48px;font-size:1.4rem;border-radius:13px}}
+  .idx-card-name{{font-size:.9rem}}
+  .idx-card-stats{{margin-top:9px;padding-top:9px}}
+  .idx-stat-n{{font-size:.82rem}}
+  .idx-stat-l{{font-size:.55rem}}
+  .idx-feats{{grid-template-columns:1fr;
+  padding:0 14px 40px;}}
+  .idx-sec{{padding:0 14px 32px}}
+  .idx-logo-text{{font-size:1rem}}
+}}
+@media(max-width:380px){{
+  .idx-grid{{grid-template-columns:1fr}}
+}}
+</style>
+</head>
+<body>
+
+<!-- Canvas estrellas -->
+<canvas id="idx-cvs"></canvas>
+
+<!-- Aurora -->
+<div class="idx-au">
+  <div class="idx-a1"></div>
+  <div class="idx-a2"></div>
+  <div class="idx-a3"></div>
+</div>
+
+<!-- Grid puntitos -->
+<div class="idx-gd"></div>
+
+<!-- Iconos flotantes -->
+<div class="idx-floats">
+  <!-- Carrito -->
+  <div class="idx-fi" style="left:8%;top:30%;width:72px;height:72px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.25);animation-duration:6s;animation-delay:0s">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="1.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 001.99 1.61h9.72a2 2 0 001.99-1.61L23 6H6"/></svg>
+  </div>
+  <!-- Usuarios -->
+  <div class="idx-fi" style="right:7%;top:25%;width:80px;height:80px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);animation-duration:8s;animation-delay:1s">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+  </div>
+  <!-- Gráfica -->
+  <div class="idx-fi" style="left:6%;top:58%;width:68px;height:68px;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.25);animation-duration:7s;animation-delay:2s">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+  </div>
+  <!-- Caja -->
+  <div class="idx-fi" style="right:8%;top:58%;width:76px;height:76px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.22);animation-duration:9s;animation-delay:.5s">
+    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="1.5"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+  </div>
+</div>
+
+<!-- Splash -->
+<div id="idx-splash">
+  <div style="width:80px;height:80px;border-radius:22px;background:linear-gradient(135deg,#3730a3,#4f46e5);display:flex;align-items:center;justify-content:center;font-size:2.2rem;box-shadow:0 0 0 12px rgba(79,70,229,.12),0 20px 60px rgba(79,70,229,.5);animation:idx-sppop .7s cubic-bezier(.34,1.56,.64,1) both">🏪</div>
+  <h1 style="font-size:2.2rem;font-weight:900;letter-spacing:-.04em;margin-top:20px;background:linear-gradient(135deg,#fff 30%,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;opacity:0;animation:idx-spup .7s ease .3s both">GestorPro</h1>
+  <p style="color:rgba(255,255,255,.35);font-size:.85rem;margin-top:6px;opacity:0;animation:idx-spup .7s ease .5s both">Sistema Multi-Tienda · Colombia</p>
+  <div id="idx-bar-w"><div id="idx-bar"></div></div>
+</div>
+
+<!-- PAGE -->
+<div class="idx-page">
+
+  <!-- NAVBAR -->
+  <nav class="idx-nav">
+    <a href="/" class="idx-logo">
+      <div class="idx-logo-icon">🏪</div>
+      <span class="idx-logo-text">Gestor<span>Pro</span></span>
+    </a>
+    <div class="idx-nav-r">
+      {nav_right}
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <div class="idx-hero">
+    <div class="idx-hero-icon">🏪</div>
+    <h1>GestorPro</h1>
+    <p class="idx-hero-sub">Sistema de Gestión Multi-Tienda · Colombia</p>
+    <div class="idx-hero-badge">
+      <span class="idx-hero-dot"></span>
+      {n_tiendas} tienda{"s" if n_tiendas != 1 else ""} disponible{"s" if n_tiendas != 1 else ""}
+    </div>
+  </div>
+
+  <!-- TIENDAS -->
+  <div class="idx-sec">
+    <div class="idx-sec-header">
+      <div class="idx-sec-line"></div>
+      <div>
+        <h2>Mis Tiendas</h2>
+        <p>Administra todas tus tiendas desde un solo lugar</p>
+      </div>
+      <div class="idx-sec-line r"></div>
+    </div>
+    <div class="idx-grid">
+      {cards}
+    </div>
+  </div>
+
+  <!-- FEATURES -->
+  <div class="idx-feats">
+    <div class="idx-feat">
+      <div class="idx-feat-icon" style="background:rgba(16,185,129,.12)">🛡️</div>
+      <div>
+        <div class="idx-feat-title">100% Seguro</div>
+        <div class="idx-feat-desc">Tus datos protegidos con los más altos estándares</div>
+      </div>
+    </div>
+    <div class="idx-feat">
+      <div class="idx-feat-icon" style="background:rgba(59,130,246,.12)">☁️</div>
+      <div>
+        <div class="idx-feat-title">Acceso en la Nube</div>
+        <div class="idx-feat-desc">Accede desde cualquier lugar y dispositivo</div>
+      </div>
+    </div>
+    <div class="idx-feat">
+      <div class="idx-feat-icon" style="background:rgba(245,158,11,.12)">🎧</div>
+      <div>
+        <div class="idx-feat-title">Soporte 24/7</div>
+        <div class="idx-feat-desc">Estamos aquí para ayudarte siempre que lo necesites</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="idx-foot">© 2026 GestorPro Colombia · <a href="/super" style="color:rgba(255,255,255,.2);text-decoration:none">⚙ Sistema</a></div>
+
+</div><!-- end .idx-page -->
+
+<script>
+// ── Splash ───────────────────────────────────────────────────
+setTimeout(function(){{document.getElementById('idx-bar').style.width='100%';}},100);
+setTimeout(function(){{
+  var s=document.getElementById('idx-splash');
+  s.style.opacity='0'; s.style.pointerEvents='none';
+  setTimeout(function(){{s.style.display='none';}},1200);
+}},2000);
+
+// ── Estrellas canvas ─────────────────────────────────────────
+(function(){{
+  var c=document.getElementById('idx-cvs');
+  if(!c)return;
+  var ctx=c.getContext('2d'),W,H,stars=[];
+  function resize(){{W=c.width=window.innerWidth;H=c.height=window.innerHeight;mk();}}
+  function mk(){{
+    stars=[];
+    var n=Math.floor(W*H/2000);
+    var cols=['#fff','#c4b5fd','#93c5fd','#6ee7b7','#fde68a'];
+    for(var i=0;i<n;i++)stars.push({{
+      x:Math.random()*W,y:Math.random()*H,
+      r:Math.random()*1.3+.2,a:Math.random()*.8+.1,
+      sp:Math.random()*.012+.003,ph:Math.random()*Math.PI*2,
+      col:cols[Math.floor(Math.random()*cols.length)]
+    }});
+  }}
+  function draw(){{
+    ctx.clearRect(0,0,W,H);
+    var t=Date.now()/1000;
+    stars.forEach(function(s){{
+      var al=s.a*(.5+.5*Math.sin(t*s.sp*60+s.ph));
+      ctx.globalAlpha=al;ctx.fillStyle=s.col;
+      ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();
+      if(s.r>1){{
+        ctx.save();ctx.globalAlpha=al*.3;ctx.strokeStyle=s.col;ctx.lineWidth=.5;
+        ctx.beginPath();
+        ctx.moveTo(s.x-s.r*2.5,s.y);ctx.lineTo(s.x+s.r*2.5,s.y);
+        ctx.moveTo(s.x,s.y-s.r*2.5);ctx.lineTo(s.x,s.y+s.r*2.5);
+        ctx.stroke();ctx.restore();
+      }}
+    }});
+    ctx.globalAlpha=1;requestAnimationFrame(draw);
+  }}
+  window.addEventListener('resize',resize);
+  resize();draw();
+}})();
+</script>
+</body>
+</html>"""
 # ================================================================
 #  LOGIN / ENTRAR / REGISTRO
 # ================================================================
@@ -6303,7 +6361,7 @@ def pedidos_unificado():
             '<div class="fg">'
             '<label style="font-size:.72rem;font-weight:800;text-transform:uppercase;'
             'letter-spacing:.08em;color:var(--mt)">Celular *</label>'
-            '<input type="tel" name="b_cel" required placeholder="Ej: 3101234567" '
+            '<input type="tel" name="b_cel" required placeholder="Ej:" '
             'inputmode="numeric" style="font-size:1rem;padding:12px 16px" '
             'oninput="this.value=this.value.replace(/[^0-9]/g,\'\')"></div>'
             '<div class="fg">'
@@ -9573,440 +9631,486 @@ def _generar_opciones(texto, productos, promos):
     return []
 
 # ================================================================
-#  ASISTENTE VIRTUAL — FULL SCREEN, PRO, TIEMPO REAL
+#  ASISTENTE VIRTUAL
 # ================================================================
-@app.route("/bot", methods=["GET","POST"])
+@app.route("/bot", methods=["GET", "POST"])
 def bot():
     if not li() and not is_guest(): return redirect("/")
+
     if request.args.get("clear"):
         session.pop("bot_hist", None)
         return redirect("/bot")
 
-    tid   = tid_now()
-    t     = get_tienda()
-    t_nom = t.get("nombre","la tienda")
-    wa    = t.get("whatsapp","").strip().replace("+","").replace(" ","")
-    tel   = t.get("telefono","")
-    hor   = t.get("horario","Consultar")
-    dir_  = t.get("direccion","")
-    ciu   = t.get("ciudad","")
+    tid  = tid_now()
+    t    = get_tienda()
+    pc   = t.get("color", "#4f46e5")
+    nom  = t.get("nombre", "la tienda")
+    tel  = t.get("telefono", "")
+    wa   = t.get("whatsapp", "").strip().replace("+","").replace(" ","")
+    hor  = t.get("horario", "Consultar")
+    dir_ = t.get("direccion", "Consultar")
+    ciu  = t.get("ciudad", "")
 
     prods  = db_query(
-        "SELECT * FROM productos WHERE tienda_id=%s ORDER BY categoria, nombre",
+        "SELECT * FROM productos WHERE tienda_id=%s ORDER BY categoria,nombre",
         (tid,), fetchall=True) or []
     promos = db_query(
-        "SELECT * FROM promociones WHERE tienda_id=%s AND activa=1 AND (hasta IS NULL OR hasta>=%s)",
-        (tid, hoy()), fetchall=True) or []
+        "SELECT * FROM promociones WHERE tienda_id=%s AND activa=1"
+        " AND (hasta IS NULL OR hasta>=%s)", (tid, hoy()), fetchall=True) or []
 
-    disponibles = [p for p in prods if p["cantidad"] > 0]
-    agotados    = [p for p in prods if p["cantidad"] == 0]
+    disp   = [p for p in prods if p.get("cantidad",0) > 0]
+    agot   = [p for p in prods if p.get("cantidad",0) <= 0]
+    wa_url = f"https://wa.me/{wa}" if wa else "#"
 
-    hay_agente = False
-    try:
-        ag = db_query("SELECT COUNT(*) as c FROM users WHERE tienda_id=%s AND rol='empleado'",
-                      (tid,), fetchone=True)
-        hay_agente = bool(ag and int(ag.get("c",0)) > 0)
-    except: pass
-
+    # ── Historial en sesión ───────────────────────────────────────
     hist = session.get("bot_hist", [])
-
-    if request.method == "POST":
-        msg_raw = (request.form.get("msg","") or "").strip()
-        if msg_raw:
-            lbl_u = BOT_QUICK.get(msg_raw, msg_raw)
-            hist.append({"quien":"Tú","texto":lbl_u,"prod":None,"hora":_hhmm()})
-            resp_txt, prod_obj = bot_ia_respuesta(tid, hist, t, prods, promos)
-            prod_data = None
-            if prod_obj:
-                prod_data = {
-                    "nombre":   prod_obj["nombre"],
-                    "precio":   float(prod_obj["precio"]),
-                    "cantidad": prod_obj.get("cantidad",0),
-                    "unidad":   prod_obj.get("unidad",""),
-                    "img":      prod_obj.get("img",""),
-                    "id":       prod_obj.get("id",0),
-                }
-            hist.append({"quien":"Bot","texto":resp_txt,"prod":prod_data,"hora":_hhmm()})
-            session["bot_hist"] = hist[-60:]
-
     if not hist:
-        bienvenida = (
-            "¡Hola! 👋 Soy el asistente de **" + t_nom + "**.\n\n"
-            "Puedo ayudarte con:\n"
-            "• 📦 Ver productos disponibles y precios\n"
-            "• 🔍 Consultar el estado de tu pedido\n"
-            "• 🔄 Información de devoluciones\n"
-            "• 💬 Conectarte con un agente en línea\n\n"
-            "Usa los botones de abajo o escríbeme 👇"
-        )
-        hist = [{"quien":"Bot","texto":bienvenida,"prod":None,"hora":_hhmm()}]
+        hist = [{"de":"bot","txt":(
+            f"¡Hola! 👋 Soy el asistente de **{nom}**.\n"
+            f"Tengo información en tiempo real sobre productos, precios, horarios y más.\n"
+            f"Escribe tu pregunta o elige una opción de abajo 👇"
+        ),"prod":None}]
         session["bot_hist"] = hist
 
-    # ── Burbujas ──────────────────────────────────────────────────────
-    msgs_html = ""
+    # ── Procesar mensaje enviado ──────────────────────────────────
+    resp_txt = None
+    prod_obj = None
+
+    if request.method == "POST":
+        msg_raw = (request.form.get("msg","") or "").strip()[:400]
+        if msg_raw:
+            # Guardar mensaje usuario
+            hist.append({"de":"yo","txt":msg_raw,"prod":None})
+
+            # Llamar al FAQ primero, luego IA
+            try:
+                resp_txt, prod_obj, handled = _bot_faq(msg_raw, t, prods, promos)
+                if not handled:
+                    resp_txt, prod_obj = bot_ia_respuesta(tid, hist, t, prods, promos)
+            except Exception as e:
+                resp_txt = "Lo siento, ocurrió un error. Por favor intenta de nuevo."
+                prod_obj = None
+
+            # Guardar respuesta bot
+            prod_serial = None
+            if prod_obj:
+                prod_serial = {
+                    "id":       int(prod_obj.get("id",0)),
+                    "nombre":   str(prod_obj.get("nombre","")),
+                    "precio":   float(prod_obj.get("precio",0)),
+                    "cantidad": int(prod_obj.get("cantidad",0)),
+                    "unidad":   str(prod_obj.get("unidad","")),
+                    "img":      str(prod_obj.get("img","") or ""),
+                }
+            hist.append({"de":"bot","txt":resp_txt,"prod":prod_serial})
+            session["bot_hist"] = hist[-50:]
+            session.modified = True
+            return redirect("/bot")
+
+    # ── Categorías para los chips ─────────────────────────────────
+    cats = []
+    seen = set()
+    for p in disp:
+        c = p.get("categoria","General") or "General"
+        if c not in seen:
+            seen.add(c); cats.append(c)
+
+    # ── Construir burbujas HTML ───────────────────────────────────
+    def mk_md(txt):
+        """Convierte markdown básico a HTML seguro."""
+        import html as _h
+        t2 = _h.escape(str(txt or ""))
+        import re as _re
+        t2 = _re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', t2)
+        t2 = _re.sub(r'\*([^*\n]+?)\*',  r'<em>\1</em>',       t2)
+        t2 = t2.replace('\n','<br>')
+        return t2
+
+    def mk_card(p):
+        ok   = p.get("cantidad",0) > 0
+        img  = p.get("img","")
+        pid  = p.get("id",0)
+        add  = (f'<a href="/add_cart/{pid}" class="bc-add">🛒 Agregar</a>'
+                if ok and pid else "")
+        badge= (f'<span class="bc-ok">✅ {p["cantidad"]} {p.get("unidad","uds")}</span>'
+                if ok else '<span class="bc-no">❌ Agotado</span>')
+        img_h= (f'<img src="{img}" class="bc-img" loading="lazy"'
+                f' onerror="this.style.display=\'none\'">'
+                if img else '<div class="bc-noi">🛍️</div>')
+        return (
+            f'<div class="bc-card">'
+            f'{img_h}'
+            f'<div class="bc-info">'
+            f'<div class="bc-name">{mk_md(p.get("nombre",""))}</div>'
+            f'<div class="bc-price">${int(float(p.get("precio",0))):,} / {p.get("unidad","u")}</div>'
+            f'{badge}{add}'
+            f'</div></div>'
+        )
+
+    bubbles = ""
     for m in hist:
-        hora = m.get("hora","")
-        if m["quien"] == "Tú":
-            msgs_html += (
-                '<div style="display:flex;justify-content:flex-end;'
-                'margin-bottom:16px;gap:8px;align-items:flex-end">'
-                '<div>'
-                '<div style="background:linear-gradient(135deg,#4f46e5,#6366f1);'
-                'color:#fff;border-radius:18px 4px 18px 18px;'
-                'padding:11px 16px;max-width:280px;font-size:.875rem;'
-                'line-height:1.5;box-shadow:0 4px 16px rgba(79,70,229,.28);'
-                'word-break:break-word">'
-                + _fmt_msg(m["texto"]) +
-                '</div>'
-                '<div style="font-size:.63rem;color:var(--mt);'
-                'text-align:right;margin-top:4px">' + hora + ' ✓✓</div>'
-                '</div>'
-                '<div style="width:30px;height:30px;border-radius:50%;flex-shrink:0;'
-                'background:linear-gradient(135deg,#818cf8,#6366f1);'
-                'display:flex;align-items:center;justify-content:center;'
-                'font-size:.75rem">👤</div>'
-                '</div>'
+        de  = m.get("de","bot")
+        txt = m.get("txt","")
+        pd  = m.get("prod")
+        card_h = mk_card(pd) if pd else ""
+
+        if de == "yo":
+            bubbles += (
+                f'<div class="brow brow-u">'
+                f'<div class="bub-u">{mk_md(txt)}</div>'
+                f'<div class="bav bav-u">👤</div>'
+                f'</div>'
             )
         else:
-            # Card de producto si existe
-            card = ""
-            if m.get("prod"):
-                pd   = m["prod"]
-                disp = pd.get("cantidad",0) > 0
-                pid_c = str(pd.get("id",0))
-                img_h = ""
-                if pd.get("img"):
-                    img_h = (
-                        '<img src="' + str(pd["img"]) + '" '
-                        'style="width:52px;height:52px;object-fit:cover;'
-                        'border-radius:10px;flex-shrink:0" '
-                        'onerror="this.style.display=\'none\'">'
-                    )
-                add_btn = ""
-                if disp and pid_c != "0":
-                    add_btn = (
-                        '<a href="/add_cart/' + pid_c + '" '
-                        'style="display:inline-block;background:#4f46e5;color:#fff;'
-                        'border-radius:8px;padding:5px 12px;font-size:.72rem;'
-                        'text-decoration:none;font-weight:700;margin-top:6px;'
-                        'white-space:nowrap">🛒 Agregar al carrito</a>'
-                    )
-                card = (
-                    '<div style="background:rgba(79,70,229,.05);'
-                    'border:1px solid rgba(79,70,229,.15);'
-                    'border-radius:12px;padding:10px;margin-top:10px;'
-                    'display:flex;gap:10px;align-items:flex-start">'
-                    + img_h +
-                    '<div>'
-                    '<div style="font-weight:800;font-size:.84rem">'
-                    + str(pd.get("nombre","")) + '</div>'
-                    '<div style="font-size:.82rem;color:var(--sc);font-weight:700">'
-                    + fmt(pd.get("precio",0)) + ' / ' + str(pd.get("unidad","u")) + '</div>'
-                    '<div style="font-size:.72rem;margin-top:3px">'
-                    + ('<span style="color:#15803d;font-weight:700">✅ Disponible — '
-                       + str(pd.get("cantidad","")) + ' ' + str(pd.get("unidad","")) + '</span>'
-                       if disp else
-                       '<span style="color:#dc2626;font-weight:700">❌ Agotado</span>')
-                    + '</div>'
-                    + add_btn +
-                    '</div></div>'
-                )
-            msgs_html += (
-                '<div style="display:flex;gap:10px;margin-bottom:16px;align-items:flex-start">'
-                '<div style="width:32px;height:32px;border-radius:50%;flex-shrink:0;'
-                'background:linear-gradient(135deg,#312e81,#4f46e5);'
-                'display:flex;align-items:center;justify-content:center;font-size:.85rem;'
-                'box-shadow:0 2px 10px rgba(79,70,229,.3);margin-top:2px">🤖</div>'
-                '<div style="flex:1;min-width:0">'
-                '<div style="background:var(--card);border:1px solid var(--bd);'
-                'border-radius:4px 18px 18px 18px;padding:12px 15px;'
-                'font-size:.875rem;line-height:1.55;'
-                'box-shadow:0 2px 8px rgba(0,0,0,.05);max-width:520px;'
-                'word-break:break-word">'
-                + _fmt_msg(m["texto"]) + card +
-                '</div>'
-                '<div style="font-size:.63rem;color:var(--mt);margin-top:4px">'
-                + hora + '</div>'
-                '</div></div>'
+            bubbles += (
+                f'<div class="brow brow-b">'
+                f'<div class="bav bav-b">🤖</div>'
+                f'<div class="bub-b">{mk_md(txt)}{card_h}</div>'
+                f'</div>'
             )
 
-    # ── Botones en tiempo real ────────────────────────────────────────
-    cats_prod = []
-    seen = set()
-    for p in prods:
-        c = (p.get("categoria","General") or "General")
-        if c not in seen:
-            seen.add(c); cats_prod.append(c)
-
-    cat_btns = ""
-    for cat in cats_prod[:7]:
-        n = sum(1 for p in disponibles if (p.get("categoria","General") or "General") == cat)
-        cat_btns += (
-            '<form method="post" style="display:inline">'
-            '<input type="hidden" name="msg" value="ver categoria ' + cat + '">'
-            '<button type="submit" class="qb">📂 ' + cat
-            + ' <small>(' + str(n) + ')</small></button></form>'
+    # ── Chips de acceso rápido ────────────────────────────────────
+    def chip(label, msg, cls=""):
+        import html as _h
+        safe = _h.escape(msg)
+        return (
+            f'<button type="submit" name="msg" value="{safe}" '
+            f'class="chip {cls}">{label}</button>'
         )
-    cat_btns += (
-        '<form method="post" style="display:inline">'
-        '<input type="hidden" name="msg" value="ver_catalogo">'
-        '<button type="submit" class="qb">📋 Ver todos</button></form>'
+
+    chips_prod  = "".join(chip(f"📂 {c}", f"qué tienen de {c}") for c in cats[:7])
+    chips_prod += chip("📋 Ver todo el catálogo", "muéstrame todos los productos")
+
+    n_ok = len(disp)
+    n_ag = len(agot)
+    n_pr = len(promos)
+
+    chips_inv = (
+        chip(f"✅ Disponibles ({n_ok})", "qué productos tienen disponibles","chip-green")
+        + chip(f"❌ Agotados ({n_ag})", "qué está agotado ahora","chip-red")
+        + (chip(f"🎁 Promos ({n_pr})", "qué promociones tienen","chip-purple") if n_pr else "")
     )
 
-    agente_h = ""
-    if hay_agente:
-        agente_h = (
-            '<a href="/chat_cliente" class="qb qb-ag">'
-            '🟢 Agente en línea</a>'
-        )
-    wa_h = ""
+    chips_ayuda = (
+        chip("📦 Ver mi pedido",     "cómo veo el estado de mi pedido")
+        + chip("💳 Cómo pagar",      "cómo puedo pagar")
+        + chip("🏍️ Domicilios",      "hacen domicilios")
+        + chip("🕐 Horario",         "cuál es el horario")
+        + chip("🔄 Devoluciones",    "cómo hago una devolución")
+        + chip("❌ Cancelar pedido", "cómo cancelo mi pedido")
+        + chip("📸 Comprobante",     "cómo envío el comprobante de pago")
+    )
+
+    chip_wa = ""
     if wa:
-        wa_h = (
-            '<a href="https://wa.me/' + wa + '" target="_blank" class="qb qb-wa">'
-            + WA_SVG + ' WhatsApp</a>'
+        chip_wa = (
+            f'<a href="{wa_url}" target="_blank" class="chip chip-wa">'
+            f'💬 WhatsApp</a>'
+        )
+    chip_ag = ""
+    try:
+        ag = db_query(
+            "SELECT COUNT(*) as c FROM users WHERE tienda_id=%s AND rol='empleado'",
+            (tid,), fetchone=True)
+        if ag and int(ag.get("c",0)) > 0:
+            chip_ag = '<a href="/chat_cliente" class="chip chip-agent">🟢 Hablar con agente</a>'
+    except: pass
+
+    # ── Alerta de stock bajo ──────────────────────────────────────
+    stock_bajo = [p for p in disp if 0 < p.get("cantidad",0) <= 5]
+    alerta_h = ""
+    if stock_bajo:
+        names = ", ".join(p["nombre"] for p in stock_bajo[:4])
+        alerta_h = (
+            f'<div class="sto-alert">'
+            f'⚠️ Stock bajo: <strong>{names}</strong>'
+            + (f" y {len(stock_bajo)-4} más" if len(stock_bajo)>4 else "")
+            + f'</div>'
         )
 
-    # ── CSS (anula padding .ct solo para esta página) ─────────────────
-    css_bot = (
-        "<style>"
-        # Anular padding del contenedor general
-        ".ct{padding:0!important;overflow:hidden!important}"
-        ".main{overflow:hidden!important}"
-        # Wrapper principal — ocupa todo lo que queda bajo la topbar
-        "#bot-root{"
-        "  display:flex;flex-direction:column;"
-        "  height:calc(100vh - 57px);"   # 57px = altura del .tb
-        "  background:var(--bg);"
-        "  overflow:hidden;"
-        "}"
-        # Header del bot
-        "#bot-header{"
-        "  background:linear-gradient(135deg,#0f172a,#1e1b4b);"
-        "  padding:12px 20px;"
-        "  display:flex;align-items:center;justify-content:space-between;"
-        "  flex-shrink:0;"
-        "  border-bottom:1px solid rgba(255,255,255,.08);"
-        "}"
-        "#bot-hav{"
-        "  width:38px;height:38px;border-radius:50%;"
-        "  background:linear-gradient(135deg,#4f46e5,#818cf8);"
-        "  display:flex;align-items:center;justify-content:center;"
-        "  font-size:1.05rem;flex-shrink:0;"
-        "  box-shadow:0 0 0 3px rgba(99,102,241,.25);"
-        "}"
-        ".bot-hname{color:#fff;font-weight:900;font-size:.9rem}"
-        ".bot-hstat{"
-        "  color:#4ade80;font-size:.68rem;font-weight:600;margin-top:2px;"
-        "  display:flex;align-items:center;gap:4px;"
-        "}"
-        ".bot-hstat::before{"
-        "  content:'';width:6px;height:6px;border-radius:50%;"
-        "  background:#22c55e;box-shadow:0 0 5px #22c55e;"
-        "}"
-        ".bot-cbtn{"
-        "  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);"
-        "  color:rgba(255,255,255,.8);border-radius:8px;font-size:.7rem;"
-        "  padding:5px 11px;cursor:pointer;text-decoration:none;"
-        "  font-family:inherit;transition:.15s;display:inline-flex;"
-        "  align-items:center;gap:4px;"
-        "}"
-        ".bot-cbtn:hover{background:rgba(255,255,255,.2);color:#fff}"
-        # Área mensajes — crece y scrollea
-        "#bot-msgs{"
-        "  flex:1;"
-        "  overflow-y:auto;"
-        "  padding:18px 22px;"
-        "  scroll-behavior:smooth;"
-        "}"
-        "#bot-msgs::-webkit-scrollbar{width:4px}"
-        "#bot-msgs::-webkit-scrollbar-thumb{background:var(--bd);border-radius:99px}"
-        # Panel botones — altura fija
-        "#bot-panel{"
-        "  flex-shrink:0;"
-        "  background:var(--card);"
-        "  border-top:1.5px solid var(--bd);"
-        "  overflow-y:auto;"
-        "  max-height:240px;"
-        "}"
-        "#bot-panel::-webkit-scrollbar{width:3px}"
-        "#bot-panel::-webkit-scrollbar-thumb{background:var(--bd);border-radius:99px}"
-        ".bot-section{padding:10px 16px 4px}"
-        ".bot-sec-title{"
-        "  font-size:.6rem;font-weight:900;text-transform:uppercase;"
-        "  letter-spacing:.1em;color:var(--mt);margin-bottom:7px;"
-        "  display:flex;align-items:center;gap:6px;"
-        "}"
-        ".bot-sec-title::after{content:'';flex:1;height:1px;background:var(--bd)}"
-        ".bot-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}"
-        # Quick buttons
-        ".qb{"
-        "  display:inline-flex;align-items:center;gap:4px;"
-        "  background:var(--bg);border:1.5px solid var(--bd);color:var(--tx);"
-        "  border-radius:99px;padding:6px 13px;font-size:.76rem;font-weight:600;"
-        "  cursor:pointer;font-family:inherit;transition:all .16s;"
-        "  white-space:nowrap;text-decoration:none;"
-        "}"
-        ".qb:hover{"
-        "  background:rgba(79,70,229,.07);border-color:#4f46e5;"
-        "  color:#4f46e5;transform:translateY(-1px);"
-        "  box-shadow:0 3px 10px rgba(79,70,229,.12);"
-        "}"
-        ".qb small{opacity:.65;font-size:.68rem}"
-        ".qb-gr{border-color:#22c55e!important;color:#15803d!important;background:#f0fdf4!important}"
-        ".qb-gr:hover{background:#dcfce7!important}"
-        ".qb-rd{border-color:#fca5a5!important;color:#dc2626!important;background:#fef2f2!important}"
-        ".qb-rd:hover{background:#fee2e2!important}"
-        ".qb-pu{border-color:#c4b5fd!important;color:#7c3aed!important;background:#faf5ff!important}"
-        ".qb-pu:hover{background:#ede9fe!important}"
-        ".qb-ag{"
-        "  background:linear-gradient(135deg,#059669,#0ea5e9)!important;"
-        "  color:#fff!important;border:none!important;font-weight:800!important;"
-        "  box-shadow:0 4px 14px rgba(5,150,105,.3);"
-        "  animation:blink-ag 2s infinite;"
-        "}"
-        ".qb-wa{background:#25D366!important;color:#fff!important;border:none!important;font-weight:700!important}"
-        "@keyframes blink-ag{0%,100%{box-shadow:0 4px 14px rgba(5,150,105,.3)}50%{box-shadow:0 4px 22px rgba(5,150,105,.6)}}"
-        # Input bar
-        "#bot-input-bar{"
-        "  flex-shrink:0;padding:11px 16px;"
-        "  background:var(--card);border-top:1.5px solid var(--bd);"
-        "  display:flex;gap:8px;align-items:center;"
-        "}"
-        "#bot-inp{"
-        "  flex:1;background:var(--bg);border:1.5px solid var(--bd);"
-        "  border-radius:13px;padding:10px 16px;font-size:.875rem;"
-        "  font-family:inherit;color:var(--tx);outline:none;transition:.18s;"
-        "}"
-        "#bot-inp:focus{border-color:#4f46e5;box-shadow:0 0 0 3px rgba(79,70,229,.12)}"
-        "#bot-inp::placeholder{color:var(--mt)}"
-        "#bot-send{"
-        "  width:42px;height:42px;border-radius:13px;border:none;flex-shrink:0;"
-        "  background:linear-gradient(135deg,#4f46e5,#6366f1);"
-        "  color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;"
-        "  box-shadow:0 4px 14px rgba(79,70,229,.35);transition:all .18s;"
-        "}"
-        "#bot-send:hover{transform:scale(1.08);box-shadow:0 6px 20px rgba(79,70,229,.5)}"
-        # Responsive móvil
-        "@media(max-width:640px){"
-        "  #bot-root{height:calc(100vh - 50px)}"
-        "  #bot-msgs{padding:12px 12px}"
-        "  #bot-panel{max-height:200px}"
-        "  .qb{font-size:.72rem;padding:5px 10px}"
-        "  #bot-header{padding:10px 14px}"
-        "}"
-        "</style>"
-    )
+    return base(f"💬 Chat — {nom}", f"""
+<style>
+/* ── Layout ───────────────────────────────────────────────── */
+.ct{{padding:0!important;overflow:hidden!important}}
+#bc{{
+  display:flex;flex-direction:column;
+  height:calc(100vh - 57px);
+  background:var(--bg);
+  font-family:'Plus Jakarta Sans',system-ui,sans-serif;
+}}
 
-    # ── Panel de botones ──────────────────────────────────────────────
-    panel = (
-        '<div id="bot-panel">'
-        # Catálogo
-        '<div class="bot-section">'
-        '<div class="bot-sec-title">🛍️ Catálogo por categoría</div>'
-        '<div class="bot-row">' + cat_btns + '</div>'
-        '</div>'
-        # Inventario
-        '<div class="bot-section">'
-        '<div class="bot-sec-title">📦 Estado del inventario</div>'
-        '<div class="bot-row">'
-        '<form method="post" style="display:inline">'
-        '<input type="hidden" name="msg" value="ver_disponibles">'
-        '<button type="submit" class="qb qb-gr">✅ Disponibles <small>(' + str(len(disponibles)) + ')</small></button></form>'
-        '<form method="post" style="display:inline">'
-        '<input type="hidden" name="msg" value="ver_agotados">'
-        '<button type="submit" class="qb qb-rd">❌ Agotados <small>(' + str(len(agotados)) + ')</small></button></form>'
-        + (
-            '<form method="post" style="display:inline">'
-            '<input type="hidden" name="msg" value="ver_promos">'
-            '<button type="submit" class="qb qb-pu">🎁 Promociones <small>(' + str(len(promos)) + ')</small></button></form>'
-            if promos else ""
-        )
-        + '</div></div>'
-        # Pedidos
-        '<div class="bot-section">'
-        '<div class="bot-sec-title">🔧 Pedidos y ayuda</div>'
-        '<div class="bot-row">'
-        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="estado_pedido"><button type="submit" class="qb">📦 Mi pedido</button></form>'
-        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="cancelar_pedido"><button type="submit" class="qb">❌ Cancelar pedido</button></form>'
-        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="devolucion"><button type="submit" class="qb">🔄 Devoluciones</button></form>'
-        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="como_pagar"><button type="submit" class="qb">💳 Métodos de pago</button></form>'
-        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="info_domi"><button type="submit" class="qb">🏍️ Domicilios</button></form>'
-        '<form method="post" style="display:inline"><input type="hidden" name="msg" value="horario_info"><button type="submit" class="qb">🕐 Horario</button></form>'
-        '</div></div>'
-        # Contacto
-        '<div class="bot-section" style="padding-bottom:12px">'
-        '<div class="bot-sec-title">💬 Contacto directo</div>'
-        '<div class="bot-row">' + agente_h + wa_h + '</div>'
-        '</div>'
-        '</div>'
-    )
+/* ── Header ───────────────────────────────────────────────── */
+#bc-hd{{
+  background:linear-gradient(135deg,#0a0a1a 0%,#1e1b4b 55%,{pc}55 100%);
+  padding:12px 16px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}}
+.bc-hav{{
+  width:40px;height:40px;border-radius:12px;
+  background:linear-gradient(135deg,{pc},{pc}99);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.15rem;box-shadow:0 0 0 3px {pc}33;flex-shrink:0;
+}}
+.bc-hn{{color:#fff;font-weight:800;font-size:.9rem}}
+.bc-hs{{
+  font-size:.62rem;color:rgba(255,255,255,.5);
+  display:flex;align-items:center;gap:5px;margin-top:2px;
+}}
+.bc-dot{{
+  width:6px;height:6px;border-radius:50%;
+  background:#22c55e;box-shadow:0 0 5px #22c55e;
+  animation:bcbl 2s ease infinite;
+}}
+@keyframes bcbl{{0%,100%{{opacity:1}}50%{{opacity:.3}}}}
+.bc-hbtn{{
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);
+  color:rgba(255,255,255,.8);border-radius:8px;padding:5px 11px;
+  font-size:.7rem;text-decoration:none;font-family:inherit;cursor:pointer;
+  transition:.15s;display:inline-flex;align-items:center;gap:5px;
+}}
+.bc-hbtn:hover{{background:rgba(255,255,255,.18);color:#fff}}
 
-    # ── HTML completo ─────────────────────────────────────────────────
-    html = (
-        css_bot +
-        '<div id="bot-root">'
-        # Header
-        '<div id="bot-header">'
-        '<div style="display:flex;align-items:center;gap:11px">'
-        '<div id="bot-hav">🤖</div>'
-        '<div>'
-        '<div class="bot-hname">Asistente — ' + t_nom + '</div>'
-        '<div class="bot-hstat">IA activa · Datos en tiempo real</div>'
-        '</div></div>'
-        '<div style="display:flex;gap:6px">'
-        '<a href="/bot?clear=1" class="bot-cbtn">🔄 Limpiar</a>'
-        '</div>'
-        '</div>'
-        # Mensajes
-        '<div id="bot-msgs">' + msgs_html + '</div>'
-        # Panel botones
-        + panel +
-        # Input
-        '<form method="post" id="bot-form">'
-        '<div id="bot-input-bar">'
-        '<input type="text" name="msg" id="bot-inp" '
-        'placeholder="Escribe tu pregunta o usa los botones..." autocomplete="off">'
-        '<button type="submit" id="bot-send">'
-        '<svg width="15" height="15" viewBox="0 0 24 24" fill="white">'
-        '<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>'
-        '</button>'
-        '</div></form>'
-        '</div>'
-        # Script
-        '<script>'
-        # Scroll al fondo SIEMPRE
-        '(function(){'
-        '  var m=document.getElementById("bot-msgs");'
-        '  if(m){m.scrollTop=m.scrollHeight;}'
-        '})();'
-        # Enter para enviar
-        'document.getElementById("bot-inp").addEventListener("keydown",function(e){'
-        '  if(e.key==="Enter"&&!e.shiftKey){'
-        '    e.preventDefault();'
-        '    document.getElementById("bot-form").submit();'
-        '  }'
-        '});'
-        # Efecto click en botones
-        'document.querySelectorAll(".qb[type=submit],.qb:not(a)").forEach(function(b){'
-        '  b.addEventListener("click",function(){'
-        '    this.style.opacity="0.6";this.style.transform="scale(.95)";'
-        '  });'
-        '});'
-        # Focus input en desktop
-        'if(window.innerWidth>640)document.getElementById("bot-inp").focus();'
-        # Ajuste dinámico de altura si cambia ventana
-        'function adjH(){'
-        '  var tb=document.querySelector(".tb");'
-        '  var h=tb?tb.offsetHeight:57;'
-        '  document.getElementById("bot-root").style.height=(window.innerHeight-h)+"px";'
-        '}'
-        'adjH();window.addEventListener("resize",adjH);'
-        '</script>'
-    )
+/* ── Alerta stock ─────────────────────────────────────────── */
+.sto-alert{{
+  background:#fef9c3;border-bottom:1px solid #fde047;
+  color:#92400e;font-size:.72rem;font-weight:600;
+  padding:6px 16px;flex-shrink:0;
+}}
 
-    return base("🤖 Asistente Virtual", html)
+/* ── Mensajes ─────────────────────────────────────────────── */
+#bc-msgs{{
+  flex:1;overflow-y:auto;padding:16px;
+  display:flex;flex-direction:column;gap:10px;
+  scroll-behavior:smooth;
+}}
+#bc-msgs::-webkit-scrollbar{{width:4px}}
+#bc-msgs::-webkit-scrollbar-thumb{{background:var(--bd);border-radius:4px}}
 
+/* ── Burbujas ─────────────────────────────────────────────── */
+.brow{{display:flex;gap:8px;align-items:flex-start;max-width:100%}}
+.brow-u{{justify-content:flex-end}}
+.brow-b{{justify-content:flex-start}}
+.bav{{
+  width:30px;height:30px;border-radius:9px;flex-shrink:0;margin-top:2px;
+  display:flex;align-items:center;justify-content:center;font-size:.8rem;
+}}
+.bav-b{{background:linear-gradient(135deg,#312e81,{pc});box-shadow:0 2px 8px {pc}33}}
+.bav-u{{background:linear-gradient(135deg,#818cf8,{pc})}}
+.bub-b{{
+  background:var(--card);border:1px solid var(--bd);
+  border-radius:4px 14px 14px 14px;
+  padding:10px 13px;max-width:88%;
+  font-size:.87rem;line-height:1.65;color:var(--tx);
+  box-shadow:0 1px 6px rgba(0,0,0,.05);
+}}
+.bub-u{{
+  background:linear-gradient(135deg,{pc},{pc}cc);
+  color:#fff;border-radius:14px 4px 14px 14px;
+  padding:10px 13px;max-width:72%;
+  font-size:.87rem;line-height:1.5;
+  box-shadow:0 3px 14px {pc}44;
+}}
 
+/* ── Tarjeta producto ─────────────────────────────────────── */
+.bc-card{{
+  display:flex;margin-top:10px;border-radius:12px;
+  overflow:hidden;border:1px solid var(--bd);
+  background:var(--bg);max-width:280px;
+  box-shadow:0 2px 8px rgba(0,0,0,.06);
+  transition:transform .2s;
+}}
+.bc-card:hover{{transform:translateY(-2px)}}
+.bc-img{{width:80px;height:80px;object-fit:cover;flex-shrink:0}}
+.bc-noi{{
+  width:80px;height:80px;background:var(--bd);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.6rem;flex-shrink:0;
+}}
+.bc-info{{padding:9px 11px;flex:1;display:flex;flex-direction:column;gap:3px}}
+.bc-name{{font-weight:800;font-size:.8rem;line-height:1.3;color:var(--tx)}}
+.bc-price{{font-weight:900;font-size:.85rem;color:{pc}}}
+.bc-ok{{font-size:.65rem;font-weight:700;padding:2px 7px;border-radius:99px;background:#dcfce7;color:#166534;border:1px solid #bbf7d0;display:inline-block;margin-top:2px}}
+.bc-no{{font-size:.65rem;font-weight:700;padding:2px 7px;border-radius:99px;background:#fee2e2;color:#991b1b;border:1px solid #fecaca;display:inline-block;margin-top:2px}}
+.bc-add{{
+  display:inline-block;margin-top:6px;
+  background:{pc};color:#fff;border-radius:7px;
+  padding:4px 10px;font-size:.7rem;font-weight:700;text-decoration:none;
+  transition:opacity .15s;
+}}
+.bc-add:hover{{opacity:.85}}
+
+/* ── Chips ────────────────────────────────────────────────── */
+#bc-chips{{
+  flex-shrink:0;background:var(--card);
+  border-top:1.5px solid var(--bd);
+  overflow-y:auto;max-height:205px;
+}}
+#bc-chips::-webkit-scrollbar{{width:3px}}
+#bc-chips::-webkit-scrollbar-thumb{{background:var(--bd);border-radius:3px}}
+.cs{{padding:8px 14px 2px}}
+.cs-t{{
+  font-size:.57rem;font-weight:900;text-transform:uppercase;
+  letter-spacing:.1em;color:var(--mt);margin-bottom:6px;
+  display:flex;align-items:center;gap:6px;
+}}
+.cs-t::after{{content:'';flex:1;height:1px;background:var(--bd)}}
+.cs-row{{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:4px}}
+.chip{{
+  background:var(--bg);border:1.5px solid var(--bd);
+  color:var(--tx);border-radius:99px;padding:5px 11px;
+  font-size:.72rem;font-weight:600;cursor:pointer;font-family:inherit;
+  transition:all .14s;white-space:nowrap;line-height:1.3;
+  -webkit-tap-highlight-color:transparent;
+}}
+.chip:hover,.chip:active{{
+  background:{pc}11;border-color:{pc};color:{pc};
+  transform:translateY(-1px);box-shadow:0 2px 8px {pc}22;
+}}
+.chip-green{{border-color:#86efac!important;color:#166534!important;background:#f0fdf4!important}}
+.chip-red{{border-color:#fca5a5!important;color:#991b1b!important;background:#fff5f5!important}}
+.chip-purple{{border-color:#c4b5fd!important;color:#6d28d9!important;background:#faf5ff!important}}
+.chip-agent{{
+  background:linear-gradient(135deg,#059669,#0284c7)!important;
+  color:#fff!important;border:none!important;font-weight:800!important;
+  box-shadow:0 3px 10px rgba(5,150,105,.3);
+  animation:bc-ag 2s ease infinite;text-decoration:none;
+}}
+@keyframes bc-ag{{0%,100%{{box-shadow:0 3px 10px rgba(5,150,105,.3)}}50%{{box-shadow:0 3px 18px rgba(5,150,105,.55)}}}}
+.chip-wa{{
+  background:#25D366!important;color:#fff!important;
+  border:none!important;text-decoration:none;font-weight:700!important;
+}}
+
+/* ── Input bar ────────────────────────────────────────────── */
+#bc-form{{
+  flex-shrink:0;padding:9px 12px;
+  background:var(--card);border-top:1.5px solid var(--bd);
+  display:flex;gap:7px;align-items:flex-end;
+}}
+#bc-inp{{
+  flex:1;background:var(--bg);border:1.5px solid var(--bd);
+  border-radius:13px;padding:10px 14px;
+  font-size:.875rem;font-family:inherit;color:var(--tx);
+  outline:none;resize:none;max-height:96px;
+  line-height:1.4;overflow-y:auto;transition:.16s;
+  -webkit-appearance:none;
+}}
+#bc-inp:focus{{border-color:{pc};box-shadow:0 0 0 3px {pc}22}}
+#bc-inp::placeholder{{color:var(--mt)}}
+#bc-send{{
+  width:42px;height:42px;border-radius:12px;border:none;flex-shrink:0;
+  background:linear-gradient(135deg,{pc},{pc}cc);
+  color:#fff;cursor:pointer;font-size:1.1rem;
+  box-shadow:0 4px 14px {pc}44;transition:all .15s;
+  -webkit-tap-highlight-color:transparent;
+  display:flex;align-items:center;justify-content:center;
+}}
+#bc-send:hover{{transform:scale(1.08)}}
+#bc-send:active{{transform:scale(.95)}}
+
+/* ── Móvil ────────────────────────────────────────────────── */
+@media(max-width:600px){{
+  #bc{{height:calc(100vh - 50px)}}
+  #bc-hd{{padding:9px 12px}}
+  #bc-msgs{{padding:12px}}
+  .bub-b,.bub-u{{font-size:.84rem;max-width:calc(100vw - 70px)}}
+  #bc-chips{{max-height:175px}}
+  .chip{{font-size:.69rem;padding:4px 9px}}
+  #bc-form{{padding:7px 9px}}
+  #bc-inp{{font-size:.84rem;padding:9px 12px}}
+  .bc-card{{max-width:100%}}
+}}
+</style>
+
+<div id="bc">
+
+  <!-- HEADER -->
+  <div id="bc-hd">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="bc-hav">🤖</div>
+      <div>
+        <div class="bc-hn">Asistente IA · {nom}</div>
+        <div class="bc-hs"><span class="bc-dot"></span>En línea · Datos en tiempo real</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:5px">
+      <a href="/bot?clear=1" class="bc-hbtn"
+         onclick="return confirm('¿Limpiar la conversación?')">🔄 Limpiar</a>
+      <a href="/tienda" class="bc-hbtn">🛍️ Tienda</a>
+    </div>
+  </div>
+
+  <!-- ALERTA STOCK BAJO -->
+  {alerta_h}
+
+  <!-- MENSAJES -->
+  <div id="bc-msgs">
+    {bubbles}
+    <div id="bc-end"></div>
+  </div>
+
+  <!-- CHIPS -->
+  <form method="post" action="/bot" id="bc-chips">
+    <div class="cs">
+  <div class="cs-t">🛍️ Catálogo por categoría</div>
+  <div class="cs-row">{chips_prod}</div>
+    </div>
+    <div class="cs">
+      <div class="cs-t">📦 Inventario</div>
+      <div class="cs-row">{chips_inv}</div>
+    </div>
+    <div class="cs">
+      <div class="cs-t">🔧 Ayuda</div>
+      <div class="cs-row">{chips_ayuda}</div>
+    </div>
+    <div class="cs" style="padding-bottom:9px">
+      <div class="cs-t">💬 Contacto</div>
+      <div class="cs-row">{chip_ag}{chip_wa}</div>
+    </div>
+  </form>
+
+  <!-- INPUT -->
+  <form method="post" action="/bot" id="bc-form">
+    <textarea
+      id="bc-inp" name="msg" rows="1"
+      placeholder="Escribe tu pregunta aquí..."
+      autocomplete="off"
+    ></textarea>
+    <button type="submit" id="bc-send">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+      </svg>
+    </button>
+  </form>
+
+</div>
+
+<script>
+// ── Scroll al fondo al cargar ──────────────────────────────
+document.getElementById('bc-end').scrollIntoView({{behavior:'auto'}});
+
+// ── Textarea: Enter envía, Shift+Enter nueva línea ─────────
+document.getElementById('bc-inp').addEventListener('keydown', function(e) {{
+  if (e.key === 'Enter' && !e.shiftKey) {{
+    e.preventDefault();
+    if (this.value.trim()) this.closest('form').submit();
+  }}
+}});
+
+// ── Auto-resize textarea ───────────────────────────────────
+document.getElementById('bc-inp').addEventListener('input', function() {{
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 96) + 'px';
+}});
+
+// ── Evitar doble envío ─────────────────────────────────────
+document.getElementById('bc-form').addEventListener('submit', function() {{
+  var btn = document.getElementById('bc-send');
+  btn.disabled = true; btn.style.opacity = '0.5';
+}});
+</script>
+""")
 #  El bloque incluye: /chat_cliente + /agente_chat + /chat_api
 # ================================================================
 
