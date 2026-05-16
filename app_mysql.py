@@ -1344,12 +1344,17 @@ RESPONSIVE_CSS =
    HAMBURGER BUTTON — visible solo en móvil
 ════════════════════════════════════════════════════════════════ */
 .hamburger{
-  display:none;position:fixed;top:12px;left:12px;z-index:999;
-  width:40px;height:40px;border-radius:10px;border:none;cursor:pointer;
-  background:var(--sb);box-shadow:0 2px 10px rgba(0,0,0,.25);
-  flex-direction:column;align-items:center;justify-content:center;gap:5px}
-.hamburger span{width:20px;height:2px;background:#fff;border-radius:2px;
-  transition:all .25s;display:block}
+  display:none;position:fixed;top:10px;left:10px;z-index:999;
+  width:46px;height:46px;border-radius:13px;border:none;cursor:pointer;
+  background:linear-gradient(135deg,var(--pr),var(--pr)cc);
+  box-shadow:0 4px 18px rgba(0,0,0,.45),0 0 0 2px rgba(255,255,255,.12);
+  flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .15s,box-shadow .15s;}
+.hamburger:active{transform:scale(.93)}
+.hamburger span{width:20px;height:2.5px;background:#fff;border-radius:3px;
+  transition:all .25s;display:block;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.hamburger.open{background:linear-gradient(135deg,#ef4444,#dc2626)}
 .hamburger.open span:nth-child(1){transform:rotate(45deg) translate(5px,5px)}
 .hamburger.open span:nth-child(2){opacity:0;transform:translateX(-6px)}
 .hamburger.open span:nth-child(3){transform:rotate(-45deg) translate(5px,-5px)}
@@ -1804,6 +1809,25 @@ def base(title, content, tid=None):
         + "}"
         + "var ov=document.getElementById('sb-overlay');"
         + "if(ov)ov.addEventListener('click',toggleSidebar);"
+        + "var _sb=document.querySelector('.sidebar');"
+        + "if(_sb){"
+        +   "var _ty=0,_tx=0;"
+        +   "_sb.addEventListener('touchstart',function(e){"
+        +     "_ty=e.touches[0].clientY;"
+        +     "_tx=e.touches[0].clientX;"
+        +   "},{passive:true});"
+        +   "_sb.addEventListener('touchend',function(e){"
+        +     "var dy=e.changedTouches[0].clientY-_ty;"
+        +     "var dx=e.changedTouches[0].clientX-_tx;"
+        +     "if(dy>60||dx<-60){"
+        +       "var _ov=document.getElementById('sb-overlay');"
+        +       "var _hb=document.querySelector('.hamburger');"
+        +       "_sb.classList.remove('mobile-open');"
+        +       "if(_ov)_ov.classList.remove('show');"
+        +       "if(_hb)_hb.classList.remove('open');"
+        +     "}"
+        +   "},{passive:true});"
+        + "}"
         # ── Validaciones globales de inputs ──────────────────────────
         + "document.querySelectorAll("
         + "  'input[name=\"nombre\"],input[name=\"nom\"],"
@@ -2318,23 +2342,103 @@ html,body{{
 
 /* ── MOBILE ── */
 @media(max-width:600px){{
-  .idx-nav{{padding:12px 14px}}
-  .idx-hero{{padding:40px 14px 32px}}
-  .idx-hero h1{{font-size:2.6rem}}
-  .idx-grid{{grid-template-columns:1fr 1fr;gap:12px}}
-  .idx-card{{min-height:240px}}
-  .idx-card-icon{{width:48px;height:48px;font-size:1.4rem;border-radius:13px}}
-  .idx-card-name{{font-size:.9rem}}
-  .idx-card-stats{{margin-top:9px;padding-top:9px}}
-  .idx-stat-n{{font-size:.82rem}}
-  .idx-stat-l{{font-size:.55rem}}
-  .idx-feats{{grid-template-columns:1fr;
-  padding:0 14px 40px;}}
-  .idx-sec{{padding:0 14px 32px}}
-  .idx-logo-text{{font-size:1rem}}
+
+  /* ── Navbar ── */
+  .idx-nav{{padding:11px 14px}}
+  .idx-logo-text{{font-size:.95rem}}
+  .idx-nav-btn span{{display:none}}
+
+  /* ── Ocultar iconos flotantes — tapan el contenido ── */
+  .idx-floats{{display:none!important}}
+
+  /* ── Hero más compacto ── */
+  .idx-hero{{padding:28px 16px 22px}}
+  .idx-hero-icon{{
+    width:64px;height:64px;border-radius:18px;font-size:1.8rem;margin-bottom:16px;
+  }}
+  .idx-hero h1{{font-size:2.2rem;margin-bottom:8px}}
+  .idx-hero-sub{{font-size:.78rem;margin-bottom:14px}}
+  .idx-hero-badge{{font-size:.72rem;padding:6px 14px}}
+
+  /* ── Sección tiendas ── */
+  .idx-sec{{padding:0 10px 28px}}
+  .idx-sec-header h2{{font-size:1.1rem}}
+  .idx-sec-header p{{font-size:.72rem}}
+
+  /* ── Grid: 2 columnas con gap justo ── */
+  .idx-grid{{
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }}
+
+  /* ── Card: altura fija suficiente ── */
+  .idx-card{{
+    min-height:0;
+    height:220px;
+    border-radius:14px;
+  }}
+  .idx-card:hover{{transform:none;box-shadow:none}}
+
+  /* ── Ícono del emoji: esquina superior derecha, NO centro ── */
+  .idx-card-icon{{
+    position:absolute;
+    top:10px;
+    right:10px;
+    left:auto;
+    transform:none!important;
+    width:38px;height:38px;
+    border-radius:10px;
+    font-size:1.1rem;
+    box-shadow:0 4px 14px rgba(0,0,0,.5);
+  }}
+  .idx-card:hover .idx-card-icon{{transform:none!important}}
+
+  /* ── Body con más espacio arriba para que no tape el badge ── */
+  .idx-card-body{{padding:10px 10px 10px}}
+
+  /* ── Textos del card ── */
+  .idx-card-name{{
+    font-size:.82rem;
+    font-weight:800;
+    margin-bottom:4px;
+    line-height:1.25;
+    /* Máximo 2 líneas */
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+    max-height:2.5em;
+  }}
+  .idx-card-loc{{font-size:.63rem;gap:3px;margin-bottom:1px}}
+  .idx-card-hor{{font-size:.58rem;gap:3px;
+    display:-webkit-box;-webkit-line-clamp:1;
+    -webkit-box-orient:vertical;overflow:hidden;
+  }}
+
+  /* ── Stats: 1 sola fila con Productos ── */
+  .idx-card-stats{{
+    margin-top:8px;padding-top:7px;
+    border-top:1px solid rgba(255,255,255,.12);
+  }}
+  .idx-stat-n{{font-size:.85rem;font-weight:800}}
+  .idx-stat-l{{font-size:.56rem;letter-spacing:.05em}}
+
+  /* ── Features: 2 col en móvil ── */
+  .idx-feats{{
+    grid-template-columns:1fr 1fr;
+    gap:8px;padding:0 10px 36px;
+  }}
+  .idx-feat{{padding:12px 12px;border-radius:11px;gap:9px}}
+  .idx-feat-icon{{width:32px;height:32px;border-radius:9px;font-size:.9rem;flex-shrink:0}}
+  .idx-feat-title{{font-size:.74rem}}
+  .idx-feat-desc{{font-size:.64rem}}
 }}
+
+/* ── Pantallas muy pequeñas (≤380px): 1 columna ── */
 @media(max-width:380px){{
-  .idx-grid{{grid-template-columns:1fr}}
+  .idx-grid{{grid-template-columns:1fr;gap:9px}}
+  .idx-card{{height:180px}}
+  .idx-feats{{grid-template-columns:1fr}}
 }}
 </style>
 </head>
