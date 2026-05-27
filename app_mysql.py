@@ -1015,7 +1015,7 @@ textarea{resize:vertical;min-height:72px}
 .cbw span{font-size:.8rem;color:var(--tx);line-height:1.55}
 .sep{height:1px;background:var(--bd);margin:18px 0}
 
-/* ══ CHATBOT IA PREMIUM ═════════════════════════════════════════ */
+/* ══ CHATBOT ═════════════════════════════════════════ */
 .bot-page{max-width:740px;margin:0 auto}
 .bot-header{
   background:linear-gradient(135deg,var(--pr) 0%,#818cf8 50%,#06b6d4 100%);
@@ -1341,7 +1341,7 @@ RESPONSIVE_CSS =
 ════════════════════════════════════════════════════════════════ */
 
 /* ════════════════════════════════════════════════════════════════
-   HAMBURGER BUTTON — visible solo en móvil
+   HAMBURGER BUTTON — visible en móvil
 ════════════════════════════════════════════════════════════════ */
 .hamburger{
   display:none;position:fixed;top:10px;left:10px;z-index:999;
@@ -1714,7 +1714,7 @@ def sidebar():
 
     return (f'<aside class="sidebar">'
             f'<div class="sl"><span class="li">🏪</span><h1>GestorPro</h1>'
-            f'<p>Multi-Tienda &middot; Colombia</p></div>'
+            f'<p>Multi-Tienda &middot; Colombia Fusagasuga</p></div>'
             f'<nav>{links}</nav>'
             f'<div class="sf2">{agent_banner}{badge}'
             f'<div class="up"><div class="av">{inicial}</div>'
@@ -2038,7 +2038,7 @@ def index():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GestorPro · Sistema Multi-Tienda Colombia</title>
+<title>GestorPro · Sistema Multi-Tienda Colombia Fusagasuga</title>
 <meta name="description" content="GestorPro — Sistema multi-tienda para panaderías y tiendas en Colombia">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
@@ -2503,7 +2503,7 @@ html,body{{
   <div class="idx-hero">
     <div class="idx-hero-icon">🏪</div>
     <h1>GestorPro</h1>
-    <p class="idx-hero-sub">Sistema de Gestión Multi-Tienda · Colombia</p>
+    <p class="idx-hero-sub">Sistema de Gestión Multi-Tienda · Colombia-Fusagasuga</p>
     <div class="idx-hero-badge">
       <span class="idx-hero-dot"></span>
       {n_tiendas} tienda{"s" if n_tiendas != 1 else ""} disponible{"s" if n_tiendas != 1 else ""}
@@ -4693,9 +4693,6 @@ def empleado():
 # ================================================================
 #  INVENTARIO — ADMIN
 # ================================================================
-# ================================================================
-#  INVENTARIO — ADMIN (corregido sin errores f-string)
-# ================================================================
 @app.route("/inventario", methods=["GET","POST"])
 def inventario():
     if not is_ad(): return redirect("/")
@@ -5303,7 +5300,7 @@ def solicitar_prov(prod_id):
         '</script>'
     ))
 # ================================================================
-#  INVENTARIO EMPLEADO — con merma de stock
+#  INVENTARIO EMPLEADO — merma de stock
 # ================================================================
 @app.route("/inventario_emp",methods=["GET","POST"])
 def inventario_emp():
@@ -5573,7 +5570,7 @@ def cart_vac():
     session["carrito"]={}; session.modified=True; return redirect("/carrito")
 
 # ================================================================
-#  CHECKOUT — PASARELA DE PAGO PREMIUM
+#  CHECKOUT — PASARELA DE PAGO
 # ================================================================
 @app.route("/checkout", methods=["GET", "POST"])
 def checkout():
@@ -6059,7 +6056,7 @@ def conf_pedido():
 
     return base("✅ Pedido Confirmado", cuerpo)
 # ================================================================
-#  PEDIDOS — MIS PEDIDOS + BUSCAR PEDIDO (UI PRO)
+#  PEDIDOS — MIS PEDIDOS + BUSCAR PEDIDO 
 # ================================================================
 @app.route("/pedidos", methods=["GET","POST"])
 @app.route("/mis_pedidos")
@@ -8662,8 +8659,7 @@ def _prod_card(p):
 
 
 # ──────────────────────────────────────────────────────────────────
-#  ENTRENAMIENTO FAQ — ULTRA COMPLETO
-#  Retorna (texto, prod_obj_o_None, respondido_bool)
+#  ENTRENAMIENTO FAQ 
 # ──────────────────────────────────────────────────────────────────
 
 def _bot_faq(msg, t, productos, promos):
@@ -9115,7 +9111,7 @@ def _generar_opciones(texto, productos, promos):
 
 
 # ──────────────────────────────────────────────────────────────────
-#  FUNCIÓN BOT — INTERFAZ CELULAR ULTRA PREMIUM
+#  FUNCIÓN BOT — INTERFAZ CELULAR
 # ──────────────────────────────────────────────────────────────────
 import urllib.request as _ureq
 import uuid as _uuid_mod
@@ -9199,7 +9195,7 @@ def _buscar_aprendido(tid, pregunta):
 
 
 # ──────────────────────────────────────────────────────────────────
-#  FAQ ULTRA COMPLETA CON PREGUNTAS ABIERTAS
+#  FAQ COMPLETA CON PREGUNTAS ABIERTAS
 # ──────────────────────────────────────────────────────────────────
 
 def _bot_faq(msg, t, productos, promos):
@@ -9246,6 +9242,50 @@ def _bot_faq(msg, t, productos, promos):
                 f"🔄 Devoluciones\n"
                 f"💬 Conectarte con un agente\n\n"
                 f"Usa el menú de abajo o escríbeme directamente 😊"), None, True
+
+     # ── 0. CARRITO (navegar o ver estado) ─────────────────────────
+    if any(w in tl for w in ["carrito","mi carrito","ver carrito","carro",
+                              "canasta","ir al carrito","ver mi carrito"]):
+        from flask import session as _sess
+        n = sum((_sess.get("carrito") or {}).values())
+        if n > 0:
+            return (f"🛒 **Tienes {n} ítem(s) en tu carrito**\n\n"
+                    f"Puedes verlo ahora:\n"
+                    f"👆 Toca el ícono **🛒** en la barra superior\n\n"
+                    f"O ve directo aquí → "
+                    f"<a href='/carrito' style='color:#4f46e5;font-weight:700'>"
+                    f"Ver mi carrito →</a>\n\n"
+                    f"¿Quieres agregar más productos o confirmar tu pedido? 😊"), None, True
+        return (f"🛒 Tu carrito está **vacío**.\n\n"
+                f"Explora el catálogo y agrega lo que necesites.\n"
+                f"Usa los botones de abajo o escríbeme qué buscas 👇"), None, True
+
+    # ── 0b. FILTRO POR CATEGORÍA (antes del catálogo general) ──────
+    import re as _re2
+    _cat_m = _re2.search(
+        r'(?:tienen de|hay de|qué tienen de|que tienen de|ver|productos de|'
+        r'mostrar|dame|qué hay de|que hay de|categoria|categoría)\s+([a-záéíóúñü\s]+)',
+        tl)
+    if _cat_m and any(w in tl for w in ["de ","categoria","categoría","ver de","hay de",
+                                          "tienen de","productos de"]):
+        _q = _cat_m.group(1).strip().rstrip("s")
+        _cat_found = None
+        for _p in productos:
+            _c = (_p.get("categoria") or "General").lower()
+            if _q in _c or _c.startswith(_q[:4]):
+                _cat_found = _p.get("categoria","General")
+                break
+        if _cat_found:
+            _cat_ps = [p for p in disp_prods
+                       if (_p2:=p.get("categoria","General")).lower() == _cat_found.lower()]
+            if _cat_ps:
+                txt = f"📂 **{_cat_found}** — {len(_cat_ps)} producto(s) disponibles:\n\n"
+                for p in _cat_ps:
+                    txt += (f"• **{p['nombre']}** — {fmt(p['precio'])} / "
+                            f"{p.get('unidad','u')} ✅ "
+                            f"({p['cantidad']} {p.get('unidad','uds')})\n")
+                txt += f"\n🛒 Toca **Agregar** en cualquier producto de la tienda."
+                return txt, _cat_ps[0], True           
 
     # ── 2. CATÁLOGO COMPLETO ──────────────────────────────────────
     if any(w in tl for w in ["producto","catalogo","catálogo","qué tienen","que hay","qué hay",
@@ -9440,6 +9480,35 @@ def _bot_faq(msg, t, productos, promos):
                 f"📞 **Tel:** {tel}\n"
                 f"💬 {wa_lnk}"), None, True
 
+    if any(w in tl for w in ["cancelar","cancelo","cancelar pedido","no quiero","arrepentí",
+                              "me equivoqué","anular","no lo quiero","deshacer pedido",
+                              "cómo cancelo","como cancelo","quiero cancelar"]):
+        return (f"❌ **¿Cómo cancelar tu pedido?**\n\n"
+                f"Tienes **10 minutos** desde que hiciste el pedido.\n\n"
+                f"**Pasos:**\n"
+                f"1️⃣ Ve a *📦 Mis Pedidos*\n"
+                f"2️⃣ Busca tu pedido\n"
+                f"3️⃣ Toca el botón **❌ Cancelar**\n\n"
+                f"⚠️ Si ya pasaron los 10 minutos:\n"
+                f"Contáctanos por {wa_lnk}\n"
+                f"y evaluamos cada caso con gusto 😊"), None, True
+
+    # ── 13. ESTADO DEL PEDIDO ─────────────────────────────────────
+    if any(w in tl for w in ["pedido","orden","estado","código","codigo","rastrear","seguimiento",
+                              "donde esta","dónde está","cuándo llega","cuando llega","mi pedido",
+                              "ver pedido","llegó","llego","entregaron","lo entregaron"]):
+        return (f"📦 **¿Cómo ver tu pedido?**\n\n"
+                f"**En la app:**\n"
+                f"1️⃣ Inicia sesión\n"
+                f"2️⃣ Ve a *📦 Mis Pedidos* en el menú\n"
+                f"3️⃣ Verás el estado en tiempo real\n\n"
+                f"**Estados:**\n"
+                f"⏳ *Pendiente* → esperando aprobación\n"
+                f"✅ *Aprobado* → siendo preparado\n"
+                f"🏍️ *En camino* → ya va para donde estás\n"
+                f"📦 *Entregado* → ¡llegó!\n"
+                f"❌ *Cancelado* → fue cancelado\n\n"
+                f"También consulta por {wa_lnk}"), None, True
     # ── 12. ESTADO DEL PEDIDO ─────────────────────────────────────
     if any(w in tl for w in ["pedido","orden","estado","código","codigo","rastrear","seguimiento",
                               "donde esta","dónde está","cuándo llega","cuando llega","mi pedido",
@@ -9456,19 +9525,6 @@ def _bot_faq(msg, t, productos, promos):
                 f"📦 *Entregado* → ¡llegó!\n"
                 f"❌ *Cancelado* → fue cancelado\n\n"
                 f"También consulta por {wa_lnk}"), None, True
-
-    # ── 13. CANCELAR PEDIDO ───────────────────────────────────────
-    if any(w in tl for w in ["cancelar","cancelo","cancelar pedido","no quiero","arrepentí",
-                              "me equivoqué","anular","no lo quiero","deshacer pedido"]):
-        return (f"❌ **¿Cómo cancelar tu pedido?**\n\n"
-                f"Tienes **10 minutos** desde que hiciste el pedido.\n\n"
-                f"**Pasos:**\n"
-                f"1️⃣ Ve a *📦 Mis Pedidos*\n"
-                f"2️⃣ Busca tu pedido\n"
-                f"3️⃣ Toca el botón **❌ Cancelar**\n\n"
-                f"⚠️ Si ya pasaron los 10 minutos:\n"
-                f"Contáctanos por {wa_lnk}\n"
-                f"y evaluamos cada caso con gusto 😊"), None, True
 
     # ── 14. DEVOLUCIONES Y CAMBIOS ────────────────────────────────
     if any(w in tl for w in ["devolución","devolucion","cambio","cambiar","reembolso",
@@ -9783,6 +9839,50 @@ def bot():
     if request.method == "POST":
         msg_raw = (request.form.get("msg","") or "").strip()[:400]
         if msg_raw:
+
+# ── Ver todos los productos con fotos ──────────────────
+            _tl = msg_raw.lower()
+            if any(w in _tl for w in [
+                "productos","ver productos","mostrar productos",
+                "todos los productos","ver todo el catalogo",
+                "ver todo el catálogo","muéstrame todos",
+                "muestrame todos","foto","fotos","ver catalogo",
+                "ver catálogo","el catalogo","el catálogo"
+            ]):
+                _todos = [{"id":p.get("id",0),
+                           "nombre":p.get("nombre",""),
+                           "precio":float(p.get("precio",0)),
+                           "cantidad":int(p.get("cantidad",0)),
+                           "unidad":str(p.get("unidad","")),
+                           "img":str(p.get("img","") or "")}
+                          for p in prods]
+                _disp  = [p for p in _todos if p["cantidad"] > 0]
+                _agot  = [p for p in _todos if p["cantidad"] <= 0]
+                hist.append({"de":"yo","txt":msg_raw,"prod":None,"cards":None})
+                hist.append({
+                    "de":    "bot",
+                    "txt":   (f"📦 **Catálogo completo — {len(_disp)} disponibles**"
+                              + (f", {len(_agot)} agotados:" if _agot else ":")),
+                    "prod":  None,
+                    "cards": _disp + _agot
+                })
+                session["bot_hist"] = hist[-50:]
+                session.modified = True
+                return redirect("/bot")
+            # ── Carrito: redirigir directo ─────────────────────────
+            if any(w in msg_raw.lower() for w in [
+                "carrito","mi carrito","ver carrito","ir al carrito",
+                "carro","canasta","abrir carrito","ver carro"
+            ]):
+                return redirect("/carrito")
+
+            # ── Tienda: redirigir directo ──────────────────────────
+            if any(w in msg_raw.lower() for w in [
+                "ir a la tienda","ver tienda","abrir tienda",
+                "ir a tienda","entrar a la tienda","ver productos"
+            ]):
+                return redirect("/tienda")
+
             # Guardar mensaje usuario
             hist.append({"de":"yo","txt":msg_raw,"prod":None})
 
@@ -9821,14 +9921,25 @@ def bot():
 
     # ── Construir burbujas HTML ───────────────────────────────────
     def mk_md(txt):
-        """Convierte markdown básico a HTML seguro."""
-        import html as _h
-        t2 = _h.escape(str(txt or ""))
-        import re as _re
-        t2 = _re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', t2)
-        t2 = _re.sub(r'\*([^*\n]+?)\*',  r'<em>\1</em>',       t2)
-        t2 = t2.replace('\n','<br>')
-        return t2
+        """Markdown → HTML preservando links <a> del servidor."""
+        import html as _h, re as _re
+        s = str(txt or "")
+        # 1. Guardar los <a> antes de escapar
+        links = []
+        def _save(m):
+            links.append(m.group(0))
+            return f"\x00L{len(links)-1}\x00"
+        s = _re.sub(r'<a\b[^>]*>.*?</a>', _save, s, flags=_re.DOTALL)
+        # 2. Escapar el resto (texto del usuario)
+        s = _h.escape(s)
+        # 3. Markdown básico
+        s = _re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', s)
+        s = _re.sub(r'\*([^*\n]+?)\*', r'<em>\1</em>', s)
+        s = s.replace('\n', '<br>')
+        # 4. Restaurar los <a>
+        for i, lnk in enumerate(links):
+            s = s.replace(f"\x00L{i}\x00", lnk)
+        return s
 
     def mk_card(p):
         ok   = p.get("cantidad",0) > 0
@@ -9851,6 +9962,31 @@ def bot():
             f'</div></div>'
         )
 
+    def mk_card_grid(p):
+        """Tarjeta vertical con foto grande para el grid de productos."""
+        ok  = p.get("cantidad", 0) > 0
+        img = p.get("img", "")
+        pid = p.get("id", 0)
+        add = (f'<a href="/add_cart/{pid}" class="bc-add bc-add-full">🛒 Agregar</a>'
+               if ok and pid else
+               '<span class="bc-no" style="font-size:.65rem;text-align:center">❌ Agotado</span>')
+        img_h = (f'<img src="{img}" class="bc-vimg" loading="lazy"'
+                 f' onerror="this.src=\'https://images.unsplash.com/photo-1549931319-a545dcf3bc7c?w=200\'">'
+                 if img else
+                 '<div class="bc-vimg bc-noi" style="height:110px">🛍️</div>')
+        badge = (f'<span class="bc-ok" style="font-size:.6rem">✅ {p["cantidad"]} {p.get("unidad","uds")}</span>'
+                 if ok else "")
+        return (
+            f'<div class="bc-vcard">'
+            f'{img_h}'
+            f'<div class="bc-vbody">'
+            f'<div class="bc-vname">{mk_md(p.get("nombre",""))}</div>'
+            f'<div class="bc-vprice">${int(float(p.get("precio",0))):,}'
+            f'<span style="font-size:.62rem;font-weight:500;opacity:.7"> /{p.get("unidad","u")}</span></div>'
+            f'{badge}'
+            f'{add}'
+            f'</div></div>'
+        )
     bubbles = ""
     for m in hist:
         de  = m.get("de","bot")
@@ -9866,10 +10002,17 @@ def bot():
                 f'</div>'
             )
         else:
+            cards_list = m.get("cards") or []
+            if cards_list:
+                grid_h = (f'<div class="bc-grid">'
+                          + "".join(mk_card_grid(c) for c in cards_list)
+                          + f'</div>')
+            else:
+                grid_h = card_h
             bubbles += (
                 f'<div class="brow brow-b">'
                 f'<div class="bav bav-b">🤖</div>'
-                f'<div class="bub-b">{mk_md(txt)}{card_h}</div>'
+                f'<div class="bub-b">{mk_md(txt)}{grid_h}</div>'
                 f'</div>'
             )
 
@@ -9883,26 +10026,45 @@ def bot():
         )
 
     chips_prod  = "".join(chip(f"📂 {c}", f"qué tienen de {c}") for c in cats[:7])
-    chips_prod += chip("📋 Ver todo el catálogo", "muéstrame todos los productos")
+    chips_prod += chip("📋 Ver todo el catálogo", "muéstrame todos los productos con precios")
+
+    # Botón carrito rápido
+    n_cart = sum((session.get("carrito") or {}).values())
+    chip_carrito = (
+        f'<a href="/carrito" class="chip chip-cart">'
+        f'🛒 Ver mi carrito'
+        + (f' <span class="gp-ct" style="background:#ef4444;color:#fff">{n_cart}</span>' if n_cart > 0 else "")
+        + f'</a>'
+    )
 
     n_ok = len(disp)
     n_ag = len(agot)
     n_pr = len(promos)
 
     chips_inv = (
-        chip(f"✅ Disponibles ({n_ok})", "qué productos tienen disponibles","chip-green")
-        + chip(f"❌ Agotados ({n_ag})", "qué está agotado ahora","chip-red")
-        + (chip(f"🎁 Promos ({n_pr})", "qué promociones tienen","chip-purple") if n_pr else "")
+        chip(f"✅ Disponibles ({n_ok})", "qué productos tienen disponibles con precios", "chip-green")
+        + chip(f"❌ Agotados ({n_ag})",  "qué está agotado ahora",                      "chip-red")
+        + (chip(f"🎁 Promos ({n_pr})",   "qué promociones o descuentos tienen",         "chip-purple") if n_pr else "")
     )
 
     chips_ayuda = (
-        chip("📦 Ver mi pedido",     "cómo veo el estado de mi pedido")
-        + chip("💳 Cómo pagar",      "cómo puedo pagar")
-        + chip("🏍️ Domicilios",      "hacen domicilios")
-        + chip("🕐 Horario",         "cuál es el horario")
-        + chip("🔄 Devoluciones",    "cómo hago una devolución")
-        + chip("❌ Cancelar pedido", "cómo cancelo mi pedido")
-        + chip("📸 Comprobante",     "cómo envío el comprobante de pago")
+        chip("📦 Mi pedido",          "cómo veo el estado de mi pedido")
+        + chip("💳 Cómo pagar",       "cómo puedo pagar, métodos de pago")
+        + chip("🏍️ Domicilios",       "hacen domicilios, zona de cobertura y costo")
+        + chip("🕐 Horario",          "cuál es el horario de atención y ubicación")
+        + chip("📍 Ubicación",        "dónde están ubicados, dirección de la tienda")
+        + chip("🔄 Devoluciones",     "cómo hago una devolución")
+        + chip("❌ Cancelar pedido",  "cómo cancelo mi pedido")
+        + chip("📸 Comprobante",      "cómo envío el comprobante de pago")
+        + chip("🎁 Promociones",      "qué promociones o descuentos tienen")
+    )
+
+    chip_carrito = (
+        f'<a href="/carrito" class="chip chip-cart">'
+        f'🛒 Ir al carrito'
+        + (f' <span class="gp-ct">{sum(session.get("carrito",{{}}).values())}</span>'
+           if session.get("carrito") else "")
+        + f'</a>'
     )
 
     chip_wa = ""
@@ -10017,6 +10179,22 @@ def bot():
 }}
 
 /* ── Tarjeta producto ─────────────────────────────────────── */
+".bc-grid{{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px;max-width:520px}}"
+".bc-vcard{{border-radius:12px;overflow:hidden;border:1px solid var(--bd);"
+"background:var(--bg);display:flex;flex-direction:column;"
+"transition:transform .18s;box-shadow:0 2px 8px rgba(0,0,0,.06)}}"
+".bc-vcard:hover{{transform:translateY(-2px)}}"
+".bc-vimg{{width:100%;height:110px;object-fit:cover;display:block}}"
+".bc-vbody{{padding:9px 10px;display:flex;flex-direction:column;gap:4px}}"
+".bc-vname{{font-weight:800;font-size:.78rem;line-height:1.3;color:var(--tx)}}"
+".bc-vprice{{font-weight:900;font-size:.88rem;color:{pc}}}"
+".bc-add-full{{display:block;text-align:center;margin-top:5px;"
+"background:{pc};color:#fff;border-radius:8px;"
+"padding:5px 10px;font-size:.7rem;font-weight:700;text-decoration:none;"
+"transition:opacity .15s}}"
+".bc-add-full:hover{{opacity:.85}}"
+"@media(max-width:480px){{.bc-grid{{grid-template-columns:1fr 1fr;gap:7px}}"
+".bc-vimg{{height:90px}}.bc-vname{{font-size:.74rem}}}}"
 .bc-card{{
   display:flex;margin-top:10px;border-radius:12px;
   overflow:hidden;border:1px solid var(--bd);
@@ -10881,5 +11059,5 @@ if __name__ == "__main__":
     print()
     print("  INSTALAR: pip install flask werkzeug reportlab pymysql")
     print("="*70)
-    # 👇 IMPORTANTE
+    
     app.run(host="0.0.0.0", port=5000, debug=True)
