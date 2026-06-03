@@ -10985,11 +10985,11 @@ def chat_poll():
 # ================================================================
 #  SEO — Google Search Console + Sitemap + Robots
 # ================================================================
-@app.route("/google34a89e6231901370.html")
+@app.route("/google7d672501fb46c518.html")
 def google_verify():
     from flask import Response
     return Response(
-        "google-site-verification: google34a89e6231901370.html",
+        "google-site-verification: google7d672501fb46c518.html",
         mimetype="text/html"
     )
 
@@ -11007,7 +11007,6 @@ def sitemap():
         '</urlset>'
     )
     return Response(xml, mimetype="application/xml")
-
 @app.route("/robots.txt")
 def robots():
     from flask import Response
